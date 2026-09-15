@@ -1138,8 +1138,8 @@ def main():
     if layer_min < 1:
         print("--layer-min 至少为 1（水面要占最低一层，层号 0 会让岸边没有落差）")
         return 1
-    if layer_max <= layer_min:
-        print(f"--layer-max({layer_max}) 必须大于 --layer-min({layer_min})")
+    if layer_max < layer_min:
+        print(f"--layer-max({layer_max}) 不能小于 --layer-min({layer_min})")
         return 1
     if layer_max > MAX_LAYER:
         print(f"最高层 {layer_max} 超过合法上限 {MAX_LAYER}，请调小 --layer-max")
