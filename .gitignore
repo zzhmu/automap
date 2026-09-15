@@ -1,0 +1,33 @@
+# ---- Python ----
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# ---- 生成产物 ----
+# 地图与预览图都能用种子复现，不入库；要留样本把 out/ 里的文件复制出来再 git add -f
+out/
+generated/
+backups/
+*.bak
+
+# ---- MPQ 解包的临时文件 ----
+# inspect_*.py 会把 war3map.* 解到这里，是中间产物
+bin/Work/
+
+# ---- tools/_tmp：脚本保留，二进制中间产物忽略 ----
+tools/_tmp/**/*.w3x
+tools/_tmp/**/*.w3m
+tools/_tmp/**/*.w3e
+tools/_tmp/**/*.doo
+tools/_tmp/**/*.wpm
+tools/_tmp/**/*.shd
+tools/_tmp/**/*.mmp
+tools/_tmp/**/*.blp
+tools/_tmp/**/*.png
+tools/_tmp/**/*.j
+
+# ---- 系统垃圾 ----
+.DS_Store
+Thumbs.db
+desktop.ini

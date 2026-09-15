@@ -1,0 +1,19 @@
+# 换行符：源码统一 LF（Python/MD 本来就是 LF），批处理必须 CRLF 否则 cmd 会解析错
+*.bat    text eol=crlf
+*.py     text eol=lf
+*.md     text eol=lf
+*.gitignore text eol=lf
+*.gitattributes text eol=lf
+
+# WC3 二进制与第三方工具：绝对不能被 git 当成文本做换行转换
+*.w3x  binary
+*.w3m  binary
+*.w3e  binary
+*.doo  binary
+*.wpm  binary
+*.shd  binary
+*.mmp  binary
+*.blp  binary
+*.exe  binary
+*.png  binary
+*.dll  binary
