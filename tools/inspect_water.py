@@ -173,8 +173,27 @@ def main():
           + " / ".join(f"L{L}={depth[w_ly == L].std():.1f}"
                        for L in sorted(set(w_ly.tolist()))))
     n_layers = len(set(w_ly.tolist()))
-    print(f"  水深档数 = {n_layers}"
-          + ("（只有一种水深，深水已关闭）" if n_layers == 1 else ""))
+    print(f"  水角点所在层数 = {n_layers}"
+          + ("；水陆同层 = 不出崖壁，岸边落差全靠 groundHeight" if n_layers == 1
+             else "；有多层 —— 说明有台地脚伸进水里"))
+    if depth.min() < 128.0:
+        n_shallow = int((depth < 128).sum())
+        # 贴岸的那一圈浅水是**有意的岸线缓坡浅滩**（gen_height 的 --shore-width），不是错误。
+        # 官方 40 张有水的图实测（tools/_tmp/shore_depth_profile.py）：离岸 1/2/3 格的水深
+        # 中位数 = 68/114/128 WE，「水深 <128 的水角点」占比中位数 41%
+        # （Riverrun 57%、BloodvenomFalls 72%）。所以判据是「浅水是不是都贴着岸」。
+        dw = shallow_width(water, cap=8)[water]
+        far = int(((depth < 128) & (dw > 4)).sum())
+        if far == 0:
+            print(f"  ✔ 有 {n_shallow} 个水角点浅于 128 WE，但**全部贴着岸**（离陆地 ≤ 4 格）"
+                  "→ 这是有意的岸线缓坡浅滩，官方有水的图 41% 的水角点都这么浅，正常")
+        else:
+            print(f"  ⚠️ 有 {n_shallow} 个水角点浅于 128 WE，其中 {far} 个**离岸超过 4 格**"
+                  "（不是岸线浅滩，是中间凭空浅了一块）——引擎实测只在水深 ≥ 128 WE 时"
+                  "才渲染水面，更浅的会被当干地画出来")
+    print("  注: 深浅水**不靠 layer 表达**（改 layer 会在水下多出崖壁、浅水处可能露出来），"
+          "只靠 groundHeight 的落差；主体水域的深度必须 ≥ 128 WE（1 整层），否则引擎不画水面；"
+          "贴岸那 1~3 格允许更浅（岸线缓坡浅滩，对齐官方实测 68/114/128）")
 
     land = ~water
     if land.any():

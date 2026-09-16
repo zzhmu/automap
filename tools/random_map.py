@@ -5,16 +5,36 @@
   python random_map.py --template <模板地图> --out <输出地图> [选项]
 示例:
   python random_map.py --template "..\\..\\Maps\\(2)Harrow.w3m" \\
-      --out ../generated_random/random_42.w3x --seed 42 --water 0.28 --density 0.35
+      --out ../generated_random/random_42.w3x --seed 42 --water 0.28 --density 0.18
+
+三步式生成（新增，详见 doc/三步地形生成方案.md）:
+  --cliffs 0           0 = 不生成悬崖（默认，单层连续，零悬崖）
+                       1 = 只在几小块区域生成悬崖（台地 + 崖壁 + 斜坡），其余地方照旧连续
+  --base deep|shallow|land   初始地面（相对水面的 WE 高度）；给了它 → 水面恒为 0，
+                             水域占比由「初始地面 + 抬升」自然决定，不再受 --water 约束
+                               deep    = 正常水域，深浅水都有
+                               shallow = 浅滩：水底压平到 --shelf-depth（默认 128=1 整层），无深水
+                               land    = 纯陆地：一滴水都没有
+  --base-level -200    直接指定初始地面高度（WE），覆盖 --base
+  --uplift 220         山脉抬升幅度（WE）
+  --mountain fbm       山脉算法 fbm / ridged / warped
+  --ridge 0.6 / --warp 8.0   ridged 的山脊锐度 / warped 的扭曲强度（格）
+  --water-level -50    绝对水面（WE），给了就覆盖 --water
+  --shelf-depth 128    水底深度下限（WE，<128 引擎不渲染水面）；也是深水判据
+  --max-relief 512     相对水面高度的振幅上限（WE）
+  --cliff-area 0.15 / --cliff-size 26 / --cliff-layers 3 / --cliff-feather 4
+                       悬崖区的面积占比 / 团块尺寸 / 最高抬几层 / 外围羽化宽度
+  --trees 0            0 = 不撒树（跳过 add_doodads 这一步）
 
 参数全部透传给两个子步骤:
   --seed / --freq / --layers / --layer-min / --layer-max / --octaves / --smooth / --level-bias
   --water / --ramps / --ramp-run / --ramp-force / --max-jump
   --raise / --lower / --rough / --blob / --grain / --ledge   → 应用高度
   --flat / --flat-size                                  → 平整区域
-  --shelf / --deep / --water-relief                     → 浅水 / 深水 / 水下起伏
+  --water-relief / --height-step / --world-clamp         → 水体 / 量化 / 崩溃防护
   --min-plateau / --min-island / --min-lake / --boundary   → gen_height.py
-  --density / --clump-size / --clump-radius / --clump-gap / --scatter / --clump-bias
+  --density / --forest-share / --forest-size / --edge-forest / --edge-band
+  --clump-size / --clump-radius / --clump-gap / --scatter / --scatter-size / --clump-bias / --tree-freq
   --tree-id / --slope-tol                              → add_doodads.py
   --exe（可选，默认自动定位 ../bin/MPQEditor.exe） / --preview-prefix
 """
@@ -116,9 +136,8 @@ def main():
                   "--ledge", str(opts.get("ledge", 0)),
                   "--flat", str(opts.get("flat", 0.15)),
                   "--flat-size", str(opts.get("flat-size", 20)),
-                  "--shelf", str(opts.get("shelf", 3)),
-                  "--deep", str(opts.get("deep", 1)),
                   "--water-relief", str(opts.get("water-relief", 0.5)),
+                  "--height-step", str(opts.get("height-step", 4)),
                   "--ramps", str(opts.get("ramps", "auto")),
                   "--ramp-run", str(opts.get("ramp-run", 4)),
                   "--ramp-force", str(opts.get("ramp-force", 1)),
@@ -129,23 +148,47 @@ def main():
                   "--min-lake", str(opts.get("min-lake", 16)),
                   "--boundary", str(opts.get("boundary", "ring")),
                   "--preview", prefix + "_terrain.png"]
+    # 三步式生成：这几个参数给了才传，不给就用 gen_height 自己的默认
+    for k, d in (("cliffs", "0"), ("uplift", 220), ("mountain", "fbm"),
+                 ("ridge", 0.6), ("warp", 8.0), ("mountain-octaves", 4),
+                 ("shelf-depth", 128), ("max-relief", 512), ("base", None),
+                 ("base-level", None), ("water-level", None),
+                 ("cliff-area", 0.15), ("cliff-size", 26),
+                 ("cliff-layers", 3), ("cliff-feather", 4.0),
+                 ("shore-width", 3), ("shore-shallow", 0),
+                 ("world-clamp", 0)):
+        if opts.get(k) is not None:
+            height_cmd += ["--" + k, str(opts[k])]
     if opts.get("layer-max") is not None:
         height_cmd += ["--layer-max", str(opts["layer-max"])]
     rc = run_child(height_cmd)
     if rc:
         return rc
 
+    # 第 3 步（可选）：撒树
+    trees = str(opts.get("trees", "1")) not in ("0", "false", "no")
+    if not trees:
+        print("[2/2] 撒树 —— 已跳过（--trees 0）")
+        print(f"\n完成 → {out}")
+        print(f"预览 → {prefix}_terrain.png")
+        return 0
+
     print("[2/2] 撒树")
     tree_cmd = [PY, os.path.join(HERE, "add_doodads.py"), out] + exe_args + [
                 "--no-backup",
                 "--seed", seed,
-                "--density", str(opts.get("density", 0.35)),
-                "--clump-size", str(opts.get("clump-size", 26)),
-                "--clump-radius", str(opts.get("clump-radius", 4.5)),
-                "--clump-gap", str(opts.get("clump-gap", 2.1)),
+                "--density", str(opts.get("density", 0.18)),
+                "--forest-share", str(opts.get("forest-share", 0.32)),
+                "--forest-size", str(opts.get("forest-size", 170)),
+                "--clump-size", str(opts.get("clump-size", 11)),
+                "--clump-radius", str(opts.get("clump-radius", 3.0)),
+                "--clump-gap", str(opts.get("clump-gap", 1.5)),
                 "--clump-bias", str(opts.get("clump-bias", 0.55)),
-                "--scatter", str(opts.get("scatter", 0.015)),
-                "--freq", str(opts.get("tree-freq", 3.0)),
+                "--scatter", str(opts.get("scatter", 0.035)),
+                "--scatter-size", str(opts.get("scatter-size", 1.5)),
+                "--edge-forest", str(opts.get("edge-forest", 0.55)),
+                "--edge-band", str(opts.get("edge-band", 14)),
+                "--freq", str(opts.get("tree-freq", 2.2)),
                 "--slope-tol", str(opts.get("slope-tol", 1)),
                 "--preview", prefix + "_trees.png"]
     if opts.get("tree-id"):

@@ -62,6 +62,17 @@ def load_wpm(path, tmp):
     return cells, ver
 
 
+def tile_cells(block, lab, rows, cols, fy, fx):
+    """把 wpm 的 4x4 格按**瓦片**归拢：第 i 行 = 第 i 个 True 瓦片自己的 fy*fx 个格。
+
+    ⚠️ 别写成 block.reshape(-1, fy*fx)[lab.ravel()] —— 那个 reshape 是按内存顺序切块
+    （同一瓦片行里连续 fx 列会被切进同一块），和 lab.ravel() 的瓦片顺序对不上，会静默
+    错位、把结论变成噪声。必须先 transpose(0,2,1,3) 让「瓦片」成为第一维。
+    """
+    t = block.transpose(0, 2, 1, 3).reshape(rows - 1, cols - 1, fy * fx)
+    return t[lab].reshape(-1)
+
+
 def main():
     path = sys.argv[1]
     tmp = os.path.join(HERE, "_tmp", "diagflags")
@@ -84,7 +95,6 @@ def main():
     fy, fx = ch // (rows - 1), cw // (cols - 1)
     block = cells[:fy * (rows - 1), :fx * (cols - 1)].reshape(rows - 1, fy, cols - 1, fx)
 
-    gh = corner[:, :, 0]
     whf = corner[:, :, 1]
     fb = corner[:, :, 2]
     b1 = (whf & 0x4000) != 0
@@ -100,10 +110,7 @@ def main():
         return m[:-1, :-1] & m[:-1, 1:] & m[1:, :-1] & m[1:, 1:]
 
     t_water = spread_of(water)
-    t_b1 = spread_of(b1)
-    t_b2 = spread_of(b2)
     t_ramp = allc(ramp)
-    flat = allc(layer) == 0  # 占位，下面用四角同层判定
 
     a = corner[:-1, :-1, 4] & 0x0F
     b = corner[:-1, 1:, 4] & 0x0F
@@ -111,11 +118,10 @@ def main():
     d = corner[1:, 1:, 4] & 0x0F
     is_flat = (a == b) & (a == c_) & (a == d)
 
-    # 地形推出的真值：平地且非水，或者坡道
+    # 地形推出的真值：四角同层且非水，或者四角都是斜坡
     terra_walk = (is_flat & ~t_water) | t_ramp
-    flat_block = block.reshape(-1, fy * fx)
     for name, lab in (("地形判定可走", terra_walk), ("地形判定不可走", ~terra_walk)):
-        vals = flat_block[lab.ravel()].ravel()
+        vals = tile_cells(block, lab, rows, cols, fy, fx)
         cnt = np.bincount(vals, minlength=256)
         top = sorted(((int(v), int(n)) for v, n in enumerate(cnt) if n),
                      key=lambda x: -x[1])[:6]
@@ -123,6 +129,7 @@ def main():
         for v, n in top:
             print(f"   值 {v:>3} (0x{v:02X})  {n:>7} 格  "
                   f"{100.0 * n / max(1, vals.size):>5.1f}%")
+    _ = (b1, b2)
     return 0
 
 
