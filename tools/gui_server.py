@@ -45,6 +45,12 @@ OUT_DIR = os.path.join(ROOT, "out")
 PY = sys.executable
 RANDOM_MAP = os.path.join(HERE, "random_map.py")
 
+# 中立建筑清单只从 add_buildings 取一份口径，别在界面里另抄一张表
+sys.path.insert(0, HERE)
+from add_buildings import BUILDINGS as BLD_TABLE          # noqa: E402
+from tilesets import STYLES as STYLE_TABLE                # noqa: E402
+BLD_IDS = [b[0] for b in BLD_TABLE]
+
 JOBS = {}
 _job_seq = [0]
 _job_lock = threading.Lock()
@@ -100,6 +106,15 @@ def parse_log(text):
     m = re.search(r"种树 (\d+) 棵", text)
     if m:
         info["trees"] = int(m.group(1))
+    m = re.search(r"摆放中立建筑 (\d+) 座", text)
+    if m:
+        info["buildings"] = int(m.group(1))
+    m = re.search(r"摆放野怪 (\d+) 只", text)
+    if m:
+        info["creeps"] = int(m.group(1))
+    m = re.search(r"地图风格: (\S+?)（", text)
+    if m:
+        info["style"] = m.group(1)
     m = re.search(r"斜坡: (\d+) 条", text)
     if m:
         info["ramps"] = int(m.group(1))
@@ -198,6 +213,28 @@ def run_job(job_id, params):
         add("scatter-size", params.get("scatter_size", 1.5))
         add("edge-forest", params.get("edge_forest", 0.55))
         add("edge-band", params.get("edge_band", 14))
+        # 第 4 步：中立建筑（每种一个数量，0 = 不放）
+        if str(params.get("buildings", 1)) not in ("1", "true", "True"):
+            add("buildings", 0)
+        for bid in BLD_IDS:
+            v = params.get("nb_" + bid)
+            if v is not None:
+                add("nb-" + bid, int(float(v)))
+        add("nb-min-dist", params.get("nb_min_dist", 8))
+        add("nb-edge", params.get("nb_edge", 6))
+        add("nb-flat-tol", params.get("nb_flat_tol", 1))
+        # 第 5 步：野怪（守建筑 + 树林角落 + 按等级掉落）
+        if str(params.get("creeps", 1)) not in ("1", "true", "True"):
+            add("creeps", 0)
+        add("guard-share", params.get("cr_guard_share", 0.6))
+        if str(params.get("cr_forest_auto", 1)) in ("1", "true", "True"):
+            add("forest-camps", "auto")
+        else:
+            add("forest-camps", max(0, int(float(params.get("cr_forest_n", 16) or 0))))
+        add("camp-scale", params.get("cr_camp_scale", 1.0))
+        # 地图风格：GUI 多选，逗号拼接 → random_map 随机抽一
+        if params.get("style"):
+            add("style", params["style"])
         add("tree-freq", params.get("tree_freq", 2.2))
 
         emit(f"$ 模板 {os.path.basename(tpl_abs)} → {name}  (seed={seed})")
@@ -220,11 +257,13 @@ def run_job(job_id, params):
             job["error"] = f"生成器退出码 {proc.returncode}"
             return
 
-        previews = []
-        for suff in ("_terrain.png", "_trees.png"):
+        # 用 key 而不是顺序，免得跳过撒树时「树丛」位被建筑预览顶上（顺序会错位）
+        previews = {}
+        for key, suff in (("terrain", "_terrain.png"), ("trees", "_trees.png"),
+                          ("buildings", "_buildings.png"), ("creeps", "_creeps.png")):
             p = prefix + suff
             if os.path.exists(p):
-                previews.append(os.path.relpath(p, OUT_DIR).replace("\\", "/"))
+                previews[key] = os.path.relpath(p, OUT_DIR).replace("\\", "/")
         info["previews"] = previews
         info["out_abs"] = out_abs
         info["seed"] = seed
@@ -270,6 +309,9 @@ class Handler(BaseHTTPRequestHandler):
                 "out_dir": OUT_DIR,
                 "root": ROOT,
                 "layer_max": LAYER_MAX,
+                "buildings": [{"id": bid, "name": cn, "default": dflt, "official": med,
+                               "note": note} for bid, cn, _r, med, dflt, note in BLD_TABLE],
+                "styles": [{"id": k, "name": v["name"]} for k, v in STYLE_TABLE.items()],
             })
         elif u.path == "/api/job":
             jid = (q.get("id") or [""])[0]
@@ -365,6 +407,15 @@ PAGE = r"""<!DOCTYPE html>
   .hint b{color:var(--accent)}
   .chk{display:flex;align-items:center;gap:8px;margin-top:10px;font-size:12.5px;color:var(--dim)}
   .chk input{width:auto}
+  .bldrow{display:flex;align-items:center;gap:8px;margin-top:6px;font-size:12.5px;
+    color:var(--dim);white-space:nowrap}
+  .bldrow input[type=checkbox]{width:auto;flex:none}
+  .bldrow label{flex:1;margin:0;cursor:pointer;overflow:hidden;text-overflow:ellipsis}
+  .bldrow input[type=number]{width:62px;flex:none;padding:5px 7px;font-size:12.5px}
+  .bldrow .bid{color:var(--dim);opacity:.7;font-size:11px;margin-left:2px}
+  .bldrow .bdoff{flex:none;width:74px;text-align:right;font-size:10.5px;opacity:.65}
+  .bldrow input:disabled+label{opacity:.5}
+  .bldrow input:disabled~.bdoff{opacity:.3}
   button{background:var(--accent);color:#06111f;border:none;border-radius:8px;
     padding:9px 14px;font-size:13.5px;font-weight:600;cursor:pointer}
   button:hover{background:#62b0ff}
@@ -441,6 +492,15 @@ PAGE = r"""<!DOCTYPE html>
         <option value="none">none — 全清</option>
         <option value="keep">keep — 沿用模板边框</option>
       </select>
+    </div>
+
+    <div class="panel">
+      <h2>地图风格（tileset）</h2>
+      <div class="hint" style="margin:0 0 8px">决定<strong>地面纹理、树模型、野怪种类、雇佣兵营地外观</strong>。
+        可多选：每次生成从勾选的风格里<strong>随机抽一种</strong>（WE 格式决定一张图只能有一种风格）。
+        每种风格的野怪池/雇佣兵变体都是 <strong>45 张官方对战图</strong>的实测搭配，不是猜的。
+        不勾 = 跟随模板（默认洛丹伦的夏天）。</div>
+      <div id="styleBox"></div>
     </div>
 
     <div class="panel">
@@ -596,6 +656,49 @@ PAGE = r"""<!DOCTYPE html>
       <input id="edgeBand" type="range" min="4" max="40" step="1" value="14">
       </div>
     </div>
+
+    <div class="panel">
+      <h2>第 4 步 · 中立建筑（可选）</h2>
+      <div class="chk"><input type="checkbox" id="buildings" checked>
+        <label for="buildings" style="margin:0"
+          title="按你勾选的种类和数量在地形上摆放中立建筑（金矿/商店/实验室/雇佣兵营地/泉水/市场/酒馆）。不勾 = 一张图里没有任何中立建筑">摆中立建筑</label></div>
+      <div id="bldBody">
+        <div class="hint" style="margin:0 0 8px">建筑会落在<b>平地</b>上（占地范围四角同层、不碰水、不出地图边界），
+          彼此间距 ≥ 间距值、避开树林，并用「最远点采样」铺开而不是扎堆。
+          「官方参考」是 <strong>43 张 1.27a 原生对战图</strong>实测的每图个数中位。</div>
+        <div id="bldList"></div>
+        <label class="tip" data-tip="<span class='tt'>建筑间距</span>任意两座中立建筑之间的<b>最小格距</b>。<br>金矿体积大（占地约 3 格半径），间距太小会挤在一起；<br>官方图里同图建筑都拉得很开，参考值 <b>8~12 格</b>。">建筑间距（格） <span id="bdV">8</span><span class="q">?</span></label>
+        <input id="nbMinDist" type="range" min="3" max="24" step="1" value="8">
+        <label class="tip" data-tip="<span class='tt'>边缘留空</span>建筑离地图边界至少留几格。<br>太贴边会压在 WE 的边界标记上，也容易被卡在角落里。">边缘留空（格） <span id="beV">6</span><span class="q">?</span></label>
+        <input id="nbEdge" type="range" min="1" max="20" step="1" value="6">
+        <label class="tip" data-tip="<span class='tt'>平地容差</span>建筑占地范围内允许的<b>最大层差</b>（层 = 128 WE 高差）。<br><b>0</b> = 必须完全同层（最保险，但平地少时可能放不下）；<br><b>1</b> = 允许 1 层差（和官方图里建筑偶尔压在缓坡上一致）。">平地容差（层） <span id="bfV">1</span><span class="q">?</span></label>
+        <input id="nbFlatTol" type="range" min="0" max="2" step="1" value="1">
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>第 5 步 · 野怪（可选）</h2>
+      <div class="chk"><input type="checkbox" id="creeps" checked>
+        <label for="creeps" style="margin:0"
+          title="按官方对战图的结构放野怪：一部分守在金矿/商店/实验室旁边，其余散在树林角落；每窝野怪按规模掉不同等级的物品。不勾 = 一只野怪都没有">放野怪（守建筑 + 树林角落，按等级掉落）</label></div>
+      <div id="crpBody">
+        <div class="hint" style="margin:0 0 8px">野怪点结构复刻 <strong>45 张官方图 1269 个野怪点</strong>的实测：
+          组合从 183 个官方搭配模板里按频次抽样；窝的大小 p50 = <strong>4 只</strong>（3~5 只为主）；
+          官方 <strong>63%</strong> 的金矿、<strong>65%</strong> 的商店有野怪守着（点心离建筑 2~5 格），
+          其余 37% 的窝离任何建筑 &gt;9 格、贴着树林 —— 就是「树林角落的野怪」。
+          掉落按窝的规模查官方 (类别,等级) 联合分布表，<strong>窝越大掉得越好</strong>；
+          掉落挂在等级最高的怪身上，<strong>等级 &gt; 6 的野怪必定掉装备</strong>（等级取自游戏 UnitBalance 数据）。</div>
+        <label class="tip" data-tip="<span class='tt'>守建筑野怪点比例</span>多大规模比例的金矿/商店/实验室旁边放一个守卫野怪点。<br>官方实测：金矿 <b>63%</b>、商店 <b>65%</b>、实验室 <b>59%</b> 有守卫，<br>守卫点心离建筑 <b>2~5 格</b>（金矿中位 3.2 格）。">守建筑野怪点比例 <span id="gsV">60%</span><span class="q">?</span></label>
+        <input id="crGuardShare" type="range" min="0" max="1" step="0.05" value="0.6">
+        <label class="tip" data-tip="<span class='tt'>林中野怪点个数</span>不守建筑、散在树林角落的野怪点数量。<br><b>按图面积自动</b>：128×128 → 16 个，图越大越多。<br>选址要求：离任何中立建筑 &gt;12 格、离出生点 &gt;8 格、5×5 范围内尽量有树。">林中野怪点（树林角落） <span id="fnV">自动</span><span class="q">?</span></label>
+        <div class="chk" style="margin:2px 0 4px"><input type="checkbox" id="crForestAuto" checked>
+          <label for="crForestAuto" style="margin:0">按图面积自动</label></div>
+        <input id="crForestN" type="number" min="0" max="200" step="1" value="16"
+          disabled style="width:100%">
+        <label class="tip" data-tip="<span class='tt'>野怪总量倍率</span>守卫野怪点和林中野怪点数量一起乘这个系数。<br><b>1</b> = 官方实测水平；<b>2</b> = 双倍野怪；<b>0.5</b> = 一半。">野怪总量倍率 <span id="cksV">1.0</span><span class="q">?</span></label>
+        <input id="crCampScale" type="range" min="0.2" max="3" step="0.1" value="1">
+      </div>
+    </div>
   </div>
 
   <!-- 右：结果 -->
@@ -610,6 +713,8 @@ PAGE = r"""<!DOCTYPE html>
       <div class="shots">
         <div class="shot" id="shotT"><span class="cap">地形预览（红=高地 黄=斜坡 蓝=水）</span></div>
         <div class="shot" id="shotR"><span class="cap">树丛预览</span></div>
+        <div class="shot" id="shotB"><span class="cap">中立建筑位置</span></div>
+        <div class="shot" id="shotC"><span class="cap">野怪位置</span></div>
       </div>
       <div class="row" style="margin-top:12px">
         <div><button class="ghost" id="btnFolder" style="width:100%">打开输出目录</button></div>
@@ -660,6 +765,11 @@ const sliders = [
   ["scatterSize","ssV",v=>v.toFixed(1)],
   ["edgeForest","efV",v=>Math.round(v*100)+"%"],
   ["edgeBand","ebV",v=>v],
+  ["nbMinDist","bdV",v=>v],
+  ["nbEdge","beV",v=>v],
+  ["nbFlatTol","bfV",v=>v],
+  ["crGuardShare","gsV",v=>Math.round(v*100)+"%"],
+  ["crCampScale","cksV",v=>v.toFixed(1)],
 ];
 sliders.forEach(([id,out,f])=>{
   const el=$(id);
@@ -705,6 +815,14 @@ function syncMode(){
     .forEach(e=>e.disabled=!cl);
   document.querySelectorAll("#treeBody input,#treeBody select")
     .forEach(e=>e.disabled=!$("trees").checked);
+  document.querySelectorAll("#bldBody input,#bldBody select")
+    .forEach(e=>e.disabled=!$("buildings").checked);
+  const crOn = $("creeps").checked;
+  document.querySelectorAll("#crpBody input,#crpBody select")
+    .forEach(e=>{ if(e.id!=="crForestAuto")
+      e.disabled = !crOn || (e.id==="crForestN" && $("crForestAuto").checked); });
+  $("fnV").textContent = $("crForestAuto").checked
+    ? "自动" : $("crForestN").value;
   const BASE_TXT = {
     auto:"水面按占比反解，精确可控；换一个初始地面则水面恒为 0，水域占比由「初始地面 + 山脉抬升」自然决定",
     land:"<b>纯陆地</b>：整块地形抬到水面之上 → <b>一滴水都没有</b>（占比滑条失效）",
@@ -713,7 +831,7 @@ function syncMode(){
   };
   $("baseHint").innerHTML = BASE_TXT[base] || BASE_TXT.auto;
 }
-["base","mountain","cliffs","trees"].forEach(id=>$(id).addEventListener("input",syncMode));
+["base","mountain","cliffs","trees","buildings","creeps","crForestAuto"].forEach(id=>$(id).addEventListener("input",syncMode));
 syncMode();
 
 function layerInfo(){
@@ -727,9 +845,29 @@ function layerInfo(){
 }
 ["layerMin","layerMax"].forEach(id=>$(id).addEventListener("input",layerInfo));
 
+let BLD = [];
+function renderBuildings(list){
+  BLD = list;
+  $("bldList").innerHTML = list.map(b=>`
+    <div class="bldrow">
+      <input type="checkbox" id="bldc_${b.id}"${b.default>0?" checked":""}>
+      <label for="bldc_${b.id}" title="${b.note}">${b.name}
+        <span class="bid">${b.id}</span></label>
+      <input type="number" id="bldn_${b.id}" min="0" max="64" step="1" value="${b.default}">
+      <span class="bdoff">官方参考 ${b.official}</span>
+    </div>`).join("");
+}
+
 async function boot(){
   const s = await (await fetch("/api/state")).json();
   templates = s.templates;
+  if(s.buildings) renderBuildings(s.buildings);
+  if(s.styles){
+    $("styleBox").innerHTML = s.styles.map(t=>`
+      <div class="chk"><input type="checkbox" id="sty_${t.id}"${t.id==="L"?" checked":""}>
+        <label for="sty_${t.id}" style="margin:0">${t.name}
+          <span class="bid">${t.id}</span></label></div>`).join("");
+  }
   const sel=$("template");
   sel.innerHTML = templates.map((t,i)=>
     `<option value="${t.path}">${t.name}${t.note?"  —  "+t.note:""}</option>`).join("");
@@ -798,7 +936,35 @@ function params(){
     scatter:+$("scatter").value,
     edge_forest:+$("edgeForest").value,
     edge_band:+$("edgeBand").value,
+    // 第 4 步：中立建筑（勾选 + 数量）
+    buildings:$("buildings").checked?1:0,
+    nb_min_dist:+$("nbMinDist").value,
+    nb_edge:+$("nbEdge").value,
+    nb_flat_tol:+$("nbFlatTol").value,
+    ...buildingCounts(),
+    // 第 5 步：野怪
+    creeps:$("creeps").checked?1:0,
+    cr_guard_share:+$("crGuardShare").value,
+    cr_forest_auto:$("crForestAuto").checked?1:0,
+    cr_forest_n:+$("crForestN").value,
+    cr_camp_scale:+$("crCampScale").value,
+    style:stylePick(),
   };
+}
+
+function buildingCounts(){
+  const out = {};
+  BLD.forEach(b=>{
+    const on = $("bldc_"+b.id).checked;
+    out["nb_"+b.id] = on ? Math.max(0, parseInt($("bldn_"+b.id).value||"0",10)||0) : 0;
+  });
+  return out;
+}
+
+function stylePick(){
+  const ids = ["L","W","F","A","B","C","N","Y"]
+    .filter(id=>{ const el=$("sty_"+id); return el && el.checked; });
+  return ids.join(",");
 }
 
 async function gen(){
@@ -832,16 +998,25 @@ async function poll(id){
   if(R.layer) b.push(`<span class="badge">高度层 <b>${R.layer}</b></span>`);
   if(R.ramps !== undefined) b.push(`<span class="badge">斜坡 <b>${R.ramps}</b> 条</span>`);
   if(R.trees !== undefined) b.push(`<span class="badge">树 <b>${R.trees}</b> 棵</span>`);
+  if(R.buildings !== undefined) b.push(`<span class="badge">中立建筑 <b>${R.buildings}</b> 座</span>`);
+  if(R.creeps !== undefined) b.push(`<span class="badge">野怪 <b>${R.creeps}</b> 只</span>`);
+  if(R.style) b.push(`<span class="badge">风格 <b>${R.style}</b></span>`);
   if(R.blob) b.push(`<span class="badge">${R.blob}</span>`);
   if(R.seed !== undefined) b.push(`<span class="badge">种子 <b>${R.seed}</b></span>`);
   $("badges").innerHTML = b.join("") || '<span class="badge">完成</span>';
-  const shots = R.previews || [];
-  $("shotT").innerHTML = shots[0]
-    ? `<img src="/preview?p=${encodeURIComponent(shots[0])}&t=${Date.now()}"><span class="cap">地形预览（红=高地 黄=斜坡 蓝=水）</span>`
-    : '<span class="cap">无地形预览</span>';
-  $("shotR").innerHTML = shots[1]
-    ? `<img src="/preview?p=${encodeURIComponent(shots[1])}&t=${Date.now()}"><span class="cap">树丛预览（绿色，块与块之间留了空地）</span>`
-    : '<span class="cap">无树丛预览</span>';
+  const P = R.previews || {};
+  const shot = (el, p, cap, empty) => {
+    $(el).innerHTML = p
+      ? `<img src="/preview?p=${encodeURIComponent(p)}&t=${Date.now()}"><span class="cap">${cap}</span>`
+      : `<span class="cap">${empty}</span>`;
+  };
+  shot("shotT", P.terrain, "地形预览（红=高地 黄=斜坡 蓝=水）", "无地形预览");
+  shot("shotR", P.trees, "树丛预览（绿色，块与块之间留了空地）", "无树丛预览");
+  shot("shotB", P.buildings,
+       "中立建筑位置（金=金矿 橙=商店 紫=实验室 红=雇佣兵 青=泉水 白=市场 洋红=酒馆）",
+       "无中立建筑预览");
+  shot("shotC", P.creeps,
+       "野怪位置（暗红=野怪点 亮红=野怪 棕=中立建筑）", "无野怪预览");
 }
 
 async function openPath(p){

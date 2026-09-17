@@ -200,10 +200,253 @@ def read_header(data):
     pos += 4 * n_cliff
     w = struct.unpack_from("<I", data, pos)[0] - 1; pos += 4
     h = struct.unpack_from("<I", data, pos)[0] - 1; pos += 4
-    pos += 8
+    # 8 字节 = 地形原点的世界坐标偏移（两个 float32），标准值 (-W*64, -H*64)。
+    # 游戏按 世界 = offset + 索引*128 定位角点；写 (0,0) 会让地形整体
+    # 向右上平移半张图，物件相对地形「向左下偏移半图」——必须原样保留。
+    offset_bytes = bytes(data[pos:pos + 8]); pos += 8
     return {"version": struct.unpack_from("<I", data, 4)[0], "tileset": tileset,
             "custom": custom, "ground": ground, "cliff": cliff,
-            "width": w, "height": h, "header": pos}
+            "width": w, "height": h, "header": pos, "offset": offset_bytes}
+
+
+def apply_style(data, info, style):
+    """把整块 w3e 转成目标风格（tilesets.py 的 STYLES/CONVERT）。
+
+    - 头重写：tileset 字母 + ground/cliff 纹理 id 列表（长度可能不同 → HS 变，
+      角点区整体重建）；
+    - 角点重映射：纹理索引 = 源纹理 id 经 CONVERT 语义映射（convertTo 列）
+      到目标风格的索引；悬崖索引按「新地面纹理」逐角点选（精确匹配
+      CLIFF_GROUND → L 语义族回退），保证雪地配雪崖、草地配草崖；
+    - flags / 高度 / 层 / variation 一概不动 —— 风格只换「皮」不换「骨」。
+    """
+    from tilesets import STYLES, CONVERT, CLIFF_GROUND
+    tgt = STYLES[style]
+    tex_map = []
+    for sid in info["ground"]:
+        tid = CONVERT.get(sid, {}).get(style, tgt["textures"][0])
+        tex_map.append(tgt["textures"].index(tid) if tid in tgt["textures"] else 0)
+    # 悬崖索引：各风格悬崖表内顺序不同（L=[CLdi,CLgr] 0泥1草，A=[CAgr,CAdi]
+    # 0草1泥，W=[CWgr,CWsn] 0草1雪），按序号直搬会把草崖换成泥崖——
+    # 且静态映射在「目标表缺某个语义」时退化（如 W 无泥崖，L 的 CLdi 精确
+    # 匹配失败回退索引 0，雪崖 CWsn 就再没人用了）。
+    # 改为逐角点按「新地面纹理」选崖：先精确匹配 CLIFF_GROUND==新地面id
+    # （Wsnw→CWsn、Agrs→CAgr），没有再按 L 语义族（泥系/植被系）取首个
+    # 同族，仍没有（目标表真没有）才回退表首。groundTile 数据源 =
+    # TerrainArt/CliffTypes.slk，见 tilesets.CLIFF_GROUND。
+    DIRT = {"Ldrt", "Ldro", "Ldrg"}
+    VEG = {"Lgrs", "Lgrd", "Lrok"}
+
+    def _lsem(tid):
+        return CONVERT.get(tid, {}).get("L", "")
+
+    def _pick_cliff(new_tid):
+        hit = next((k for k, tc in enumerate(tgt["cliffs"])
+                    if CLIFF_GROUND.get(tc) == new_tid), None)
+        if hit is not None:
+            return hit
+        fam = _lsem(new_tid)
+        want = DIRT if fam in DIRT else VEG if fam in VEG else None
+        if want:
+            hit = next((k for k, tc in enumerate(tgt["cliffs"])
+                        if _lsem(CLIFF_GROUND.get(tc, "")) in want), None)
+            if hit is not None:
+                return hit
+        return 0
+
+    HS = info["header"]
+    corners = bytearray(data[HS:])
+    n = len(corners) // 7
+    # 每种目标地面索引预解析一次选崖结果（角点循环内只查表）
+    cliff_for_tex = [_pick_cliff(tid) for tid in tgt["textures"]]
+    # 先过一遍角点：地面重映射 + 悬崖按新地面选
+    tex_idx = np.empty(n, np.uint8)
+    lay_idx = np.empty(n, np.uint8)
+    for k in range(n):
+        off = k * 7
+        ti = corners[off + 4] & 0x0F
+        ni = tex_map[ti] if ti < len(tex_map) else 0
+        corners[off + 4] = (corners[off + 4] & 0xF0) | ni
+        tex_idx[k] = ni
+        lay_idx[k] = corners[off + 6] & 0x0F
+    # 崖面一致化：同一片崖壁（层差边连通片 + 崖脚）投票统一贴图。
+    # 逐角点按地面选崖会产生「半草半泥」花斑（官方 16058 条崖面混合率 0%）。
+    Wc, Hc = info["width"], info["height"]
+    R, C = Hc + 1, Wc + 1
+    lay_g = lay_idx.reshape(R, C)
+    tex_g = tex_idx.reshape(R, C)
+    cids = np.empty((R, C), np.uint8)
+    for k in range(n):
+        cids[k // C, k % C] = cliff_for_tex[tex_idx[k]]
+    up = lay_g[:-1, :] != lay_g[1:, :]
+    lf = lay_g[:, :-1] != lay_g[:, 1:]
+    edge = np.zeros((R, C), bool)
+    edge[:-1, :] |= up
+    edge[1:, :] |= up
+    edge[:, :-1] |= lf
+    edge[:, 1:] |= lf
+    seen = np.zeros((R, C), bool)
+    for sy in range(R):
+        for sx in range(C):
+            if not edge[sy, sx] or seen[sy, sx]:
+                continue
+            comp = [(sy, sx)]
+            seen[sy, sx] = True
+            head = 0
+            while head < len(comp):
+                y, x = comp[head]
+                head += 1
+                for dy in (-1, 0, 1):
+                    for dx in (-1, 0, 1):
+                        ny, nx = y + dy, x + dx
+                        if (0 <= ny < R and 0 <= nx < C
+                                and edge[ny, nx] and not seen[ny, nx]):
+                            seen[ny, nx] = True
+                            comp.append((ny, nx))
+            votes = int(sum(cids[y, x] for y, x in comp))
+            v = 1 if votes * 2 >= len(comp) else 0
+            for y, x in comp:
+                cids[y, x] = v
+    for k in range(n):
+        off = k * 7
+        corners[off + 6] = ((int(cids[k // C, k % C]) & 0x0F) << 4) | (corners[off + 6] & 0x0F)
+    b = bytearray(b"W3E!")
+    b += struct.pack("<I", info["version"])
+    b += style.encode()
+    b += struct.pack("<I", info["custom"])
+    b += struct.pack("<I", len(tgt["textures"]))
+    for t in tgt["textures"]:
+        b += t.encode("ascii")[:4].ljust(4, b"\x00")
+    b += struct.pack("<I", len(tgt["cliffs"]))
+    for c in tgt["cliffs"]:
+        b += c.encode("ascii")[:4].ljust(4, b"\x00")
+    b += struct.pack("<II", info["width"] + 1, info["height"] + 1)
+    b += info.get("offset") or struct.pack("<ff", -(info["width"]) * 64.0, -(info["height"]) * 64.0)
+    print(f"风格: {tgt['name']}（tileset {info['tileset']}→{style}，"
+          f"地面纹理 {len(info['ground'])}→{len(tgt['textures'])}，"
+          f"悬崖 {info['cliff']}→{tgt['cliffs']}）")
+    return bytes(b) + bytes(corners)
+
+
+def paint_textures(nprng, layer, fine, is_water, deep_water, ramp):
+    """重涂地面纹理索引（返回 (rows, cols) uint8，值为纹理表下标）。
+
+    模板全图只有纹理 0（纯泥地，实测 5 张 .w3m 分布 {0: 全部}），官方地图的
+    地面是分区的。涂刷规则用 L 的语义（模板纹理表恰好是 Ldrt/Ldro/Ldrg/Lrok/
+    Lgrs/Lgrd）；--style 转换时 apply_style 会经 CONVERT 自动映射成目标风格的
+    等价纹理（Lgrs→Agrs/Wsnw/Nsnw…），所以这里不需要每风格一张表。
+
+      - 深水水底 = 深色泥地(1)，浅水水底 = 泥地(0)；
+      - 层差线两侧一圈 = 岩石(3)（崖壁脚下 / 台地沿口）；
+      - 斜坡走道 = 泥地(0)；
+      - 陆地：大团块噪声分「暗草团块(5) / 草地(4) / 粗泥过渡环(2) / 泥地斑块(0)」。
+    """
+    rows, cols = layer.shape
+    tex = np.full((rows, cols), 4, dtype=np.uint8)
+    # 两块噪声：大团块（~22 格）定分区，碎斑（~6 格）加进阈值打断团块边界
+    big = value_noise(nprng, (rows, cols), noise_cells(cols, 22.0))
+    sml = value_noise(nprng, (rows, cols), noise_cells(cols, 6.0))
+    b = big + 0.10 * (sml - 0.5)
+    # 水底
+    tex[is_water] = 0
+    tex[deep_water] = 1
+    # 层差两侧一圈岩石（同一层的水陆边界不算 —— 那没有崖壁）
+    diff = np.zeros((rows, cols), dtype=bool)
+    diff[1:, :] |= layer[1:, :] != layer[:-1, :]
+    diff[:-1, :] |= layer[1:, :] != layer[:-1, :]
+    diff[:, 1:] |= layer[:, 1:] != layer[:, :-1]
+    diff[:, :-1] |= layer[:, 1:] != layer[:, :-1]
+    tex[diff] = 3
+    # 斜坡走道
+    if ramp is not None and ramp.any():
+        tex[ramp] = 0
+    # 陆地分区（水/崖圈/坡道之外）
+    land = ~is_water & ~diff
+    if ramp is not None:
+        land &= ~ramp
+    tex[land & (b > 0.74)] = 0
+    tex[land & (b > 0.66) & (b <= 0.74)] = 2
+    tex[land & (b < 0.30)] = 5
+    # 单层模式没有层差 → 陆地最高处点缀少量岩石
+    if not diff.any() and land.any():
+        thr = np.quantile(fine[land].astype(np.float32), 0.985)
+        tex[land & (fine.astype(np.float32) >= thr)] = 3
+    # 涂刷日志（按 L 语义名；转风格后语义等价）
+    names = {0: "泥地", 1: "深泥", 2: "粗泥", 3: "岩石", 4: "草地", 5: "暗草"}
+    parts = [f"{names.get(int(k), '?')} {v * 100.0 / tex.size:.0f}%"
+             for k, v in sorted(zip(*np.unique(tex, return_counts=True)))]
+    print("地面纹理涂刷: " + " / ".join(parts))
+    return tex
+
+
+def paint_cliffs(painted, is_water, layer=None):
+    """悬崖贴图跟随地面语义（返回 (rows, cols) uint8，值为悬崖表下标，L 语义）。
+
+    模板 L 悬崖表 [CLdi, CLgr]：0=泥崖 1=草崖。官方图整图恒用一个（LT 全 1），
+    但我们的地面是分区的——恒定一个必然在某些区撞色（草地上出现泥崖）。
+    这里按涂刷的地面语义选：草地/暗草/岩石圈 → 草崖(1)，
+    泥地系/水底 → 泥崖(0)。转风格时 apply_style 会按
+    groundTile→CONVERT 语义链换成目标风格的等价悬崖（CLgr→CAgr/CWsn/CNsn…）。
+
+    ⚠️ 崖面一致化（2026-09-17 官方扫描结论）：官方 12 张图 16058 条崖面
+    混合率 0.0%——同一面崖壁（层差边连通片）两端角点贴图必须相同，否则
+    崖壁按角点插值渲染出「半草半泥」花斑。这里对崖差带（层差角点 + 其
+    低地侧一圈）做连通片多数投票：一片崖壁只有一种贴图，语义由该崖壁
+    周边地面的大多数决定。layer=None（单层图无崖）时跳过投票直接返回。
+    """
+    cliff = np.where(painted <= 2, 0, 1).astype(np.uint8)   # 泥系0-2→泥崖 草/岩3-5→草崖
+    cliff[is_water] = 0                                     # 水岸用泥崖（泥滩观感）
+    if layer is not None:
+        n_mix = _unify_cliff_faces(cliff, layer)
+        print(f"  崖面一致化: {n_mix} 片崖壁被多数票统一")
+    n_grass = int((cliff == 1).sum())
+    print(f"悬崖贴图涂刷: 草崖 {n_grass * 100.0 // cliff.size}% / "
+          f"泥崖 {100 - n_grass * 100.0 // cliff.size}%")
+    return cliff
+
+
+def _unify_cliff_faces(cliff, layer):
+    """崖面一致化：同一片崖壁的角点投票统一贴图（官方混合率 0% 的策略）。
+
+    组件定义：**有层差 4 邻的角点**（即贴着某面崖壁的角点，崖环上下沿都在内），
+    按 8 邻域连通成一环——同一台地的整圈崖壁共享贴图，不同台地被中间平地
+    隔开互不影响（与官方 16058 条崖面 0 混合的实测结构一致）。
+    片内多数票定贴图，整片覆写（水角点也随环——否则岸壁半草半泥）。
+    """
+    rows, cols = layer.shape
+    l = layer
+    up = l[:-1, :] != l[1:, :]
+    lf = l[:, :-1] != l[:, 1:]
+    edge = np.zeros((rows, cols), bool)
+    edge[:-1, :] |= up
+    edge[1:, :] |= up
+    edge[:, :-1] |= lf
+    edge[:, 1:] |= lf
+    seen = np.zeros((rows, cols), bool)
+    n_mix = 0
+    for sy in range(rows):
+        for sx in range(cols):
+            if not edge[sy, sx] or seen[sy, sx]:
+                continue
+            comp = [(sy, sx)]
+            seen[sy, sx] = True
+            head = 0
+            while head < len(comp):
+                y, x = comp[head]
+                head += 1
+                for dy in (-1, 0, 1):
+                    for dx in (-1, 0, 1):
+                        ny, nx = y + dy, x + dx
+                        if (0 <= ny < rows and 0 <= nx < cols
+                                and edge[ny, nx] and not seen[ny, nx]):
+                            seen[ny, nx] = True
+                            comp.append((ny, nx))
+            votes = int(sum(cliff[y, x] for y, x in comp))
+            v = 1 if votes * 2 >= len(comp) else 0
+            if any(cliff[y, x] != v for y, x in comp):
+                n_mix += 1
+            for y, x in comp:
+                cliff[y, x] = v
+    return n_mix
 
 
 def value_noise(nprng, shape, cells, warp=None):
@@ -2440,20 +2683,27 @@ def main():
     else:
         print("水体: 无（整张图一滴水都没有）")
 
-    # 悬崖贴图：官方地图整张图用同一套（LostTemple 全是 index 1 = CLgr），
-    # 而 WE 新建的空模板是 15（未指定）。逐角点随机是错的，会让崖壁贴图忽明忽暗。
+    ground_variation = nprng.integers(0, 32, size=(rows, cols), dtype=np.uint8)
+    # 地面纹理涂刷：模板是纯泥地（索引 0 全图），按地形特征重涂出
+    # 「草地为底 + 暗草团块 + 泥地斑块 + 崖壁脚下岩石 + 水底泥地」的官方观感。
+    painted = paint_textures(nprng, layer, fine, is_water, deep_water, ramp)
+    # 悬崖贴图：官方图整图恒用一套（LostTemple 全是 index 1 = CLgr），
+    # 但官方图地面也基本单色；我们的地面是分区的（paint_textures），
+    # 恒定索引必然在某些区撞色（草地配泥崖）。改为跟随地面语义涂刷
+    # （草区草崖 / 泥区泥崖），转风格时再语义映射到目标风格悬崖表。
     n_cliff = max(1, len(info["cliff"]))
     if cliff_tex_opt == "auto":
-        cliff_tex = 1 if n_cliff >= 2 else 0
+        cliff_texture = paint_cliffs(painted, is_water, layer)
+        if n_cliff < 2:
+            cliff_texture = np.zeros((rows, cols), dtype=np.uint8)
     else:
         cliff_tex = int(cliff_tex_opt) % max(1, min(n_cliff, 16))
-    cliff_texture = np.full((rows, cols), cliff_tex, dtype=np.uint8)
+        cliff_texture = np.full((rows, cols), cliff_tex, dtype=np.uint8)
     # 悬崖变体：官方实测的分布（0 占 45%，4 占 29%，1 占 18%，其余零星）。
     # 这个字段与斜坡无关（ramp 与普通崖壁分布几乎一致），纯粹是外观。
     cliff_variation = nprng.choice(
         8, size=(rows, cols),
         p=[0.45, 0.18, 0.018, 0.003, 0.29, 0.036, 0.018, 0.005]).astype(np.uint8)
-    ground_variation = nprng.integers(0, 32, size=(rows, cols), dtype=np.uint8)
 
     # 3. 逐角点写回
     water_corners = 0
@@ -2500,13 +2750,18 @@ def main():
                 boundary = BOUNDARY_BIT if edge else 0
                 if edge:
                     flags |= BOUNDARY2_FLAG
-            tex = data[off + 4] & 0x0F
+            tex = int(painted[cy, cx])
 
             struct.pack_into("<H", data, off, max(0, min(0xFFFF, gh)))
             struct.pack_into("<H", data, off + 2, (wh & 0x3FFF) | boundary)
             data[off + 4] = (flags & 0xF0) | tex
             data[off + 5] = ((int(ground_variation[cy, cx]) & 0x1F) << 3) | (int(cliff_variation[cy, cx]) & 0x07)
             data[off + 6] = ((int(cliff_texture[cy, cx]) & 0x0F) << 4) | (int(layer[cy, cx]) & 0x0F)
+
+    # 风格转换（可选）：--style A → 灰谷纹理/悬崖/tileset 字母（只换皮不换骨）
+    style = opts.get("style")
+    if style and style != info["tileset"]:
+        data = bytearray(apply_style(bytes(data), info, style))
 
     new_w3e = os.path.join(tmp, "war3map.w3e.new")
     open(new_w3e, "wb").write(bytes(data))

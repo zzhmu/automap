@@ -1,0 +1,1 @@
+[safe-delete][SAFE_DELETE_BULK_CONFIRM_REQUIRED] {"count":230,"threshold":50,"scope":"turn","targets":["Z:\\Game\\Warcraft III Frozen Throne 1.27a publish\\automap\\tools\\_tmp\\creep\\war3mapUnits.doo"],"targetCount":1}

@@ -84,10 +84,12 @@ LAYER_ZERO = 2
 TILE = 128
 DOO_TAIL = b"\x00" * 8
 
-# 各 tileset 的常见树（仅作模板地图里学不到时的兜底）
+# 各 tileset 的常见树（仅作模板地图里学不到时的兜底；L/A/B/C/F/N/W/Y 照官方图实测
+# —— N 图用 WTst 雪松、W 图用 WTtw，见 tools/_tmp/tileset_map_stats.py）
 FALLBACK_TREES = {
-    "L": "LTlt", "A": "ATtr", "B": "BTtw", "N": "NTtw", "W": "WTst",
-    "V": "VTlt", "Y": "YTlb", "X": "XTlt", "D": "DTsh", "F": "FTtw",
+    "L": "LTlt", "A": "ATtr", "B": "BTtw", "N": "WTst", "W": "WTtw",
+    "C": "CTtr", "F": "FTtw", "Y": "LTlt",
+    "V": "VTlt", "X": "XTlt", "D": "DTsh",
     "I": "ITtw", "Z": "ZTtw", "G": "GTsh",
 }
 

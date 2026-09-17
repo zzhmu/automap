@@ -31,3 +31,22 @@ tools/_tmp/**/*.j
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# ---- 开源发布新增（2026-09-17）----
+# 受版权保护的资产：官方地图模板（Blizzard）与第三方工具（Ladik's MPQ Editor）
+# 不入库。README 有提取/下载方法。
+template/
+bin/
+*.w3m
+*.w3x
+*.exe
+*.dll
+
+# AI 协作工作记忆（个人痕迹，与项目本体无关）
+.workbuddy/
+
+# 一次性分析脚本的二进制中间产物已在上方按扩展名忽略；_tmp 里未跟踪的
+# 顶层杂物目录（解包产物）也全部忽略，只保留已提交的 .py/.txt 统计脚本
+tools/_tmp/*
+!tools/_tmp/*.py
+!tools/_tmp/*.txt

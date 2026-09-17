@@ -25,6 +25,18 @@
   --cliff-area 0.15 / --cliff-size 26 / --cliff-layers 3 / --cliff-feather 4
                        悬崖区的面积占比 / 团块尺寸 / 最高抬几层 / 外围羽化宽度
   --trees 0            0 = 不撒树（跳过 add_doodads 这一步）
+  --buildings 0        0 = 不摆中立建筑（跳过 add_buildings 这一步）
+  --style A,W,...      地图风格（tileset）：纹理/树/野怪池/雇佣兵营地跟随风格。
+                       可多选（逗号分隔）→ 每次生成随机抽一种（一张图只能一种风格，
+                       WE 格式决定）。可选：L 洛丹伦夏 W 洛丹伦冬 F 洛丹伦秋
+                       A 灰谷 B 荒地 C 费尔伍德 N 诺森德 Y 城市。不给 = 跟随模板。
+  --nb-<id> N          每种中立建筑的数量（0 = 不放）。可选的 id：
+                         ngol 金矿(默认12) ngme 地精商店(2) ngad 地精实验室(1)
+                         nmer 雇佣兵营地(1) nfoh 生命之泉(1) nmrk 市场(1) ntav 酒馆(1)
+  --nb-min-dist 8      建筑之间的最小间距（格）
+  --nb-edge 6          距地图边缘的最小格数
+  --nb-flat-tol 1      建筑占地范围内的允许层差（0 = 必须完全同层）
+  --nb-avoid-trees 1   建筑避开装饰物（树）
 
 参数全部透传给两个子步骤:
   --seed / --freq / --layers / --layer-min / --layer-max / --octaves / --smooth / --level-bias
@@ -49,6 +61,26 @@ PY = sys.executable
 # 两个子步骤一律按 UTF-8 输出（它们自己也会强制），这里再把环境钉死，
 # 免得继承到 cp936 之类的区域设置又出编码问题。
 CHILD_ENV = dict(os.environ, PYTHONIOENCODING="utf-8", PYTHONUTF8="1")
+
+sys.path.insert(0, HERE)
+from tilesets import STYLES  # noqa: E402
+
+
+def pick_style(opts, seed):
+    """--style 支持多选（逗号分隔）：一张图只能一种风格 → 按种子随机抽一。
+
+    同一 seed 下 main / run_buildings / run_creeps 各自调用都会抽到同一个值。
+    """
+    style = opts.get("style")
+    if not style:
+        return None
+    import random as _random
+    picks = [s.strip().upper() for s in str(style).split(",") if s.strip()]
+    valid = [s for s in picks if s in STYLES]
+    if not valid:
+        print(f"⚠ 风格参数无效（{style}），忽略。可选：{','.join(STYLES)}")
+        return None
+    return _random.Random(int(seed)).choice(valid)
 
 
 def force_utf8_stdout():
@@ -115,7 +147,11 @@ def main():
     seed = str(opts.get("seed", 20260915))
     os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
     shutil.copy2(template, out)
-    print(f"[1/2] 随机地形 ← {os.path.basename(template)}")
+    chosen = pick_style(opts, int(seed))
+    if chosen:
+        print(f"地图风格: {STYLES[chosen]['name']}（{chosen}）"
+              f"—— 纹理/树/野怪池/雇佣兵营地跟随该风格")
+    print(f"[1/4] 随机地形 ← {os.path.basename(template)}")
     prefix = opts.get("preview-prefix", os.path.splitext(out)[0])
 
     height_cmd = [PY, os.path.join(HERE, "gen_height.py"), out] + exe_args + [
@@ -161,6 +197,9 @@ def main():
             height_cmd += ["--" + k, str(opts[k])]
     if opts.get("layer-max") is not None:
         height_cmd += ["--layer-max", str(opts["layer-max"])]
+    chosen_style = pick_style(opts, seed)
+    if chosen_style:
+        height_cmd += ["--style", chosen_style]
     rc = run_child(height_cmd)
     if rc:
         return rc
@@ -168,12 +207,10 @@ def main():
     # 第 3 步（可选）：撒树
     trees = str(opts.get("trees", "1")) not in ("0", "false", "no")
     if not trees:
-        print("[2/2] 撒树 —— 已跳过（--trees 0）")
-        print(f"\n完成 → {out}")
-        print(f"预览 → {prefix}_terrain.png")
-        return 0
+        print("[2/3] 撒树 —— 已跳过（--trees 0）")
+        return run_buildings(opts, out, prefix, exe_args, seed)
 
-    print("[2/2] 撒树")
+    print("[2/3] 撒树")
     tree_cmd = [PY, os.path.join(HERE, "add_doodads.py"), out] + exe_args + [
                 "--no-backup",
                 "--seed", seed,
@@ -193,12 +230,81 @@ def main():
                 "--preview", prefix + "_trees.png"]
     if opts.get("tree-id"):
         tree_cmd += ["--tree-id", str(opts["tree-id"])]
+    elif chosen_style:
+        # 风格的官方树模型（覆盖「从模板学树」—— 模板里学到的永远是洛丹伦夏天的树）
+        tree_cmd += ["--tree-id", STYLES[chosen_style]["tree"]]
     rc = run_child(tree_cmd)
     if rc:
         return rc
 
+    rc = run_buildings(opts, out, prefix, exe_args, seed)
+    if rc:
+        return rc
+    return run_creeps(opts, out, prefix, exe_args, seed)
+
+
+def run_buildings(opts, out, prefix, exe_args, seed):
+    """第 3 步（可选）：中立建筑。数量由 --nb-<id> 指定，0 = 该类不放。"""
+    if str(opts.get("buildings", "1")) in ("0", "false", "no"):
+        print("[3/3] 中立建筑 —— 已跳过（--buildings 0）")
+        print(f"\n完成 → {out}")
+        print(f"预览 → {prefix}_terrain.png / {prefix}_trees.png")
+        return 0
+
+    print("[3/3] 中立建筑")
+    bld_cmd = [PY, os.path.join(HERE, "add_buildings.py"), out] + exe_args + [
+              "--no-backup", "--seed", seed,
+              "--min-dist", str(opts.get("nb-min-dist", 8)),
+              "--edge", str(opts.get("nb-edge", 6)),
+              "--flat-tol", str(opts.get("nb-flat-tol", 1)),
+              "--gold", str(opts.get("nb-gold", 12500)),
+              "--avoid-trees", str(opts.get("nb-avoid-trees", 1)),
+              "--preview", prefix + "_buildings.png"]
+    # 每种建筑的数量：GUI/命令行给了就传，没给就让 add_buildings 用自己的默认值
+    for bid in ("ngol", "ngme", "ngad", "nmer", "nfoh", "nmrk", "ntav"):
+        v = opts.get("nb-" + bid)
+        if v is not None:
+            bld_cmd += ["--" + bid, str(v)]
+    for k, v in opts.items():            # 表外的自定义 id 也透传
+        if k.startswith("nb-") and k[3:] not in (
+                "ngol", "ngme", "ngad", "nmer", "nfoh", "nmrk", "ntav",
+                "min-dist", "edge", "flat-tol", "gold", "avoid-trees", "style"):
+            bld_cmd += ["--" + k[3:], str(v)]
+    chosen_style = pick_style(opts, seed)
+    if chosen_style:
+        bld_cmd += ["--style", chosen_style]
+    rc = run_child(bld_cmd)
+    if rc:
+        return rc
+    return 0
+
+
+def run_creeps(opts, out, prefix, exe_args, seed):
+    """第 4 步（可选）：野怪。守建筑的野怪点 + 树林角落的野怪点 + 按等级掉落。"""
+    if str(opts.get("creeps", "1")) in ("0", "false", "no"):
+        print(f"\n完成 → {out}")
+        print(f"预览 → {prefix}_terrain.png / {prefix}_trees.png / {prefix}_buildings.png")
+        return 0
+
+    print("[4/4] 野怪")
+    cr_cmd = [PY, os.path.join(HERE, "add_creeps.py"), out] + exe_args + [
+              "--no-backup", "--seed", seed,
+              "--guard-share", str(opts.get("guard-share", 0.6)),
+              "--forest-camps", str(opts.get("forest-camps", "auto")),
+              "--camp-scale", str(opts.get("camp-scale", 1.0)),
+              "--edge", str(opts.get("nb-edge", 6)),
+              "--flat-tol", str(opts.get("nb-flat-tol", 1)),
+              "--preview", prefix + "_creeps.png"]
+    chosen_style = pick_style(opts, seed)
+    if chosen_style:
+        cr_cmd += ["--style", chosen_style]
+    rc = run_child(cr_cmd)
+    if rc:
+        return rc
+
     print(f"\n完成 → {out}")
-    print(f"预览 → {prefix}_terrain.png / {prefix}_trees.png")
+    print(f"预览 → {prefix}_terrain.png / {prefix}_trees.png / "
+          f"{prefix}_buildings.png / {prefix}_creeps.png")
     return 0
 
 

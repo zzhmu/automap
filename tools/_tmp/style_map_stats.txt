@@ -1,0 +1,134 @@
+
+===== tileset A（8 张图：['(3)Forestwalk.w3m', '(4)Borderlands.w3m', '(4)Duskwood.w3m', '(4)MysticIsles.w3m', '(6)Moonglade.w3m', '(6)TimbermawHold.w3m', '(8)PetrifiedForest.w3m', '(9)Riverrun.w3m']）
+  野怪 id 池（出现次数 top40）: {'nfrl': 118, 'nwlt': 104, 'nsts': 71, 'nltl': 71, 'ngrw': 57, 'ndtb': 53, 'nsty': 44, 'nfrs': 39, 'nstl': 36, 'nfrb': 35, 'nwlg': 27, 'ndth': 27, 'nfra': 27, 'nthl': 26, 'nsat': 24, 'nwld': 23, 'nmrr': 22, 'nmrl': 22, 'ngdk': 20, 'ndtr': 20, 'ndtt': 19, 'nmrm': 18, 'ndtw': 17, 'ngrd': 16, 'nsgt': 15, 'nspr': 15, 'nfrg': 13, 'nsth': 12, 'nstw': 8, 'nssp': 6, 'nfre': 6, 'ndtp': 4, 'nsbm': 3}
+  树模型: {'ATtr': 27465, 'ARrk': 3444, 'APms': 2681, 'APct': 966, 'LPfp': 435, 'AWlp': 344, 'ASbc': 188, 'APbs': 95}
+  雇佣兵营地变体: {'nmr5': 14}
+  其他中立建筑: {'ngol': 112, 'nder': 51, 'ngme': 14, 'nwgt': 14, 'nmh0': 13, 'ngad': 11, 'nmh1': 11, 'nfoh': 4, 'ndrg': 2}
+  常见窝组合 top10:
+    ×18  {'nwlt': 3}
+    ×17  {'nfra': 1, 'nfrl': 2, 'nfrs': 1}
+    ×9   {'nwlg': 1, 'nwlt': 2}
+    ×9   {'nltl': 2}
+    ×8   {'nwld': 2, 'nwlt': 1}
+    ×8   {'nstl': 1, 'nsts': 2, 'nsty': 2}
+    ×7   {'nfrb': 1, 'nfrl': 2, 'nfrs': 1}
+    ×6   {'nfra': 1, 'nfrl': 2}
+    ×6   {'nsgt': 1, 'nspr': 2}
+    ×6   {'nfrb': 1, 'nfrl': 2}
+
+===== tileset B（6 张图：['(10)DustwallowKeys.w3m', '(3)IsleOfDread.w3m', '(5)TheGlaive.w3m', '(6)DrywaterGulch.w3m', '(6)ScorchedBasin.w3m', '(8)BlastedLands.w3m']）
+  野怪 id 池（出现次数 top40）: {'nqbh': 103, 'ncim': 66, 'ncea': 56, 'nrzm': 55, 'nbzw': 51, 'ncen': 45, 'ncer': 41, 'nowb': 31, 'nrzs': 30, 'nrzb': 28, 'nmrr': 25, 'nbzk': 24, 'nltl': 22, 'nrzg': 20, 'nmrm': 20, 'nspp': 18, 'nthl': 18, 'ncks': 16, 'nstw': 16, 'ncnk': 10, 'nmrl': 10, 'nhrh': 9, 'nhrr': 9, 'nbzd': 8, 'nhrq': 7, 'nowk': 6, 'nhrw': 6, 'nrzt': 6, 'nowe': 5}
+  树模型: {'BTtw': 19216, 'BRsp': 1667, 'BPca': 387, 'BRrk': 305, 'BRrs': 120, 'BObo': 53, 'BRgs': 52, 'AObd': 45}
+  雇佣兵营地变体: {'nmr4': 8}
+  其他中立建筑: {'ngol': 99, 'npig': 46, 'ngme': 12, 'nhns': 2, 'ncnt': 2, 'nfoh': 1, 'nct1': 1}
+  常见窝组合 top10:
+    ×10  {'ncea': 2, 'ncim': 1, 'ncnk': 1}
+    ×10  {'ncim': 3}
+    ×9   {'nqbh': 2, 'nrzg': 1, 'nrzm': 2}
+    ×8   {'ncen': 2, 'ncim': 1}
+    ×8   {'nbzk': 1, 'nbzw': 4}
+    ×8   {'ncer': 3}
+    ×7   {'nbzw': 2}
+    ×6   {'nltl': 2, 'nstw': 1}
+    ×6   {'nqbh': 3, 'nstw': 1}
+    ×6   {'nqbh': 2, 'nrzb': 1}
+
+===== tileset C（4 张图：['(3)Nighthaven.w3m', '(6)SwampOfSorrows.w3m', '(8)BloodvenomFalls.w3m', '(8)Plaguelands.w3m']）
+  野怪 id 池（出现次数 top40）: {'nmfs': 69, 'nfel': 34, 'nsts': 34, 'nmmu': 32, 'nenp': 31, 'nstl': 28, 'nmpg': 21, 'nsth': 20, 'ninf': 15, 'nepl': 15, 'nfrl': 12, 'nssp': 12, 'nenc': 12, 'nsgt': 10, 'nsbm': 9, 'ngdk': 8, 'nthl': 6, 'ngrw': 4, 'nfrb': 4, 'nfrs': 4, 'nstw': 3, 'ngrd': 2, 'nfrg': 2, 'nfre': 2, 'nbal': 2, 'nltl': 1}
+  树模型: {'CTtr': 9544, 'CRrk': 1315, 'LPrs': 1180, 'APtv': 560, 'CPms': 449, 'LOfl': 224, 'CRrs': 185, 'CPct': 151}
+  雇佣兵营地变体: {'nmr6': 2}
+  其他中立建筑: {'ngol': 59, 'nvul': 22, 'nwgt': 16, 'ngme': 10, 'nfoh': 4, 'bDNR': 4, 'ngad': 3, 'nmh0': 1, 'nmh1': 1}
+  常见窝组合 top10:
+    ×15  {'nmfs': 2, 'nmpg': 1}
+    ×12  {'nsth': 1, 'nstl': 2, 'nsts': 1}
+    ×10  {'nmfs': 2, 'nmmu': 1}
+    ×8   {'nenc': 1, 'nenp': 2, 'nepl': 1}
+    ×8   {'nfel': 3, 'ninf': 1}
+    ×6   {'nsth': 1, 'nsts': 3}
+    ×6   {'ngdk': 1, 'nmmu': 2}
+    ×5   {'nsbm': 1, 'nsgt': 2}
+    ×4   {'nfrb': 1, 'nfrl': 2, 'nfrs': 1}
+    ×4   {'nsbm': 1, 'nssp': 3}
+
+===== tileset F（3 张图：['(2)OgreMound.w3m', '(4)HarvestMoon.w3m', '(6)DragonFire.w3m']）
+  野怪 id 池（出现次数 top40）: {'nogr': 41, 'ngna': 34, 'nftb': 26, 'nogm': 17, 'nfsp': 16, 'ngst': 12, 'ngnw': 12, 'nomg': 10, 'ngns': 8, 'ngnv': 8, 'ngnb': 6, 'nmrl': 6, 'nmrm': 6, 'nftk': 6, 'nbdk': 6, 'nogl': 5, 'nftr': 4, 'nggr': 2, 'nbwm': 2}
+  树模型: {'FTtw': 9553, 'LRrk': 155, 'LPrs': 120, 'LOsh': 9, 'LPwh': 8, 'LOth': 6, 'LOo1': 5, 'LOt1': 5}
+  雇佣兵营地变体: {}
+  其他中立建筑: {'ngol': 30, 'ngme': 6, 'nshe': 4, 'npig': 4, 'nmer': 4, 'ngad': 2}
+  常见窝组合 top10:
+    ×6   {'ngst': 1, 'nogr': 2}
+    ×6   {'nogr': 2}
+    ×6   {'nbdk': 1, 'nogm': 2}
+    ×4   {'nfsp': 2, 'nftb': 2}
+    ×4   {'nfsp': 1, 'nftb': 2, 'nftk': 1}
+    ×4   {'ngna': 3, 'ngnb': 1}
+    ×4   {'ngna': 3, 'ngnv': 1}
+    ×2   {'ngna': 2, 'ngnb': 1}
+    ×2   {'nogr': 2, 'nomg': 1}
+    ×2   {'nftb': 3, 'nogl': 1}
+
+===== tileset L（17 张图：['(12)DivideAndConquer.w3m', '(2)BootyBay.w3m', '(2)HillsOfGlory.w3m', '(2)PlunderIsle.w3m', '(4)Adrenaline.w3m', '(4)Deadwaterdrop.w3m', '(4)DragonMountain.w3m', '(4)HeartToHeart.w3m']...）
+  野怪 id 池（出现次数 top40）: {'nftr': 300, 'nftb': 234, 'uDNR': 155, 'ngno': 104, 'ngst': 100, 'nfsp': 94, 'ngnb': 79, 'nogr': 72, 'ngna': 70, 'ngns': 68, 'nfsh': 66, 'nomg': 61, 'nftt': 60, 'ngnw': 53, 'ngnv': 38, 'nogm': 37, 'nogl': 33, 'ngrk': 30, 'nftk': 27, 'nrdr': 24, 'nggr': 19, 'nmrr': 18, 'nrdk': 15, 'nmrl': 12, 'nmrm': 12, 'ntrt': 12, 'ntrh': 8, 'nrwm': 7, 'ntrg': 6}
+  树模型: {'LTlt': 55427, 'LRrk': 2629, 'LPrs': 1128, 'VTlt': 369, 'LPfp': 241, 'LOss': 203, '\x00\x00\x00\x00': 189, 'LPlp': 173}
+  雇佣兵营地变体: {}
+  其他中立建筑: {'ngol': 194, 'nshe': 113, 'ngme': 41, 'npig': 20, 'nmer': 19, 'ngad': 17, 'nder': 8, 'nmoo': 5, 'nmh0': 4, 'nfoh': 3}
+  常见窝组合 top10:
+    ×18  {'nftr': 3, 'ngst': 1}
+    ×14  {'nfsp': 1, 'nftb': 2, 'ngst': 1}
+    ×12  {'ngna': 2, 'ngnb': 1}
+    ×12  {'nfsp': 1, 'nftr': 2}
+    ×12  {'uDNR': 5}
+    ×11  {'ngnb': 1, 'ngno': 3}
+    ×11  {'nftr': 2}
+    ×10  {'uDNR': 4}
+    ×9   {'ngno': 2, 'ngns': 2, 'ngnv': 1}
+    ×8   {'nfsh': 1, 'nftr': 2, 'nftt': 2}
+
+===== tileset N（2 张图：['(12)IceCrown.w3m', '(8)PlainsOfSnow.w3m']）
+  野怪 id 池（出现次数 top40）: {'nwen': 38, 'ngh1': 36, 'nitt': 36, 'nnwl': 36, 'nfrp': 24, 'nmrm': 24, 'nwwf': 24, 'nwnr': 20, 'nmrr': 16, 'nrvi': 12, 'nnwq': 12, 'nnwr': 12, 'nits': 12, 'nith': 12, 'nadw': 11, 'nmrl': 8, 'nnwa': 8, 'nitr': 6, 'nadk': 6, 'nwns': 4, 'nwna': 2, 'nitw': 2}
+  树模型: {'WTst': 11406, 'NRic': 908, 'NRwr': 606, 'NRrk': 33, 'NWfp': 13, 'NWf3': 6, 'NWfb': 6, 'NRfs': 5}
+  雇佣兵营地变体: {'nmr7': 4}
+  其他中立建筑: {'ngol': 47, 'nsea': 31, 'nfoh': 6, 'nwgt': 4, 'ngme': 4}
+  常见窝组合 top10:
+    ×16  {'nwen': 2, 'nwnr': 1}
+    ×12  {'ngh1': 3, 'nrvi': 1}
+    ×12  {'nitt': 3}
+    ×12  {'nnwl': 3, 'nnwq': 1, 'nnwr': 1}
+    ×8   {'nmrl': 1, 'nmrm': 1, 'nmrr': 2}
+    ×8   {'nwwf': 3}
+    ×4   {'nfrp': 4}
+    ×4   {'nmrm': 4, 'nwnr': 1}
+    ×4   {'nith': 2, 'nits': 2, 'nnwa': 2}
+    ×2   {'nwen': 3, 'nwna': 1}
+
+===== tileset W（4 张图：['(2)Harrow.w3m', '(4)Frostsabre.w3m', '(8)Battleground.w3m', 'yosemite2.w3x']）
+  野怪 id 池（出现次数 top40）: {'nomg': 26, 'ngns': 26, 'nitr': 24, 'nitt': 24, 'ngnw': 22, 'ngna': 20, 'nadw': 19, 'nogr': 16, 'nftr': 16, 'nitw': 16, 'nith': 16, 'nadk': 16, 'nits': 16, 'nfsp': 14, 'nftb': 12, 'ngno': 12, 'ngrk': 11, 'ngst': 11, 'ngnv': 10, 'ngnb': 8, 'nfsh': 6, 'nogm': 6, 'nadr': 5, 'nftt': 4, 'nogl': 4, 'nggr': 3, 'nftk': 2}
+  树模型: {'WTtw': 4667, 'WTst': 4526, 'LRrk': 321, '\x00\x00\x00\x00': 247, '��\x00\x00': 172, '����': 128, '���@': 102, '\x02d��': 100}
+  雇佣兵营地变体: {'nmrk': 8, 'nmr3': 2}
+  其他中立建筑: {'ngol': 74, 'ngme': 20, 'nth1': 11, 'ntav': 8, 'ngad': 6, 'nth0': 5, 'nmoo': 5, 'nmer': 4, 'nfoh': 4, 'nshp': 3}
+  常见窝组合 top10:
+    ×10  {'ngna': 2, 'ngnw': 1}
+    ×8   {'nits': 2, 'nomg': 1}
+    ×8   {'nitt': 2, 'nitw': 1}
+    ×6   {'ngns': 3, 'ngnv': 1, 'ngnw': 2}
+    ×5   {'nadw': 1}
+    ×4   {'nith': 2, 'nitr': 4, 'nitt': 2, 'nitw': 1}
+    ×4   {'nfsp': 2, 'nftb': 1, 'nftr': 2}
+    ×4   {'ngnb': 1, 'ngno': 3}
+    ×4   {'ngrk': 2, 'ngst': 2}
+    ×4   {'nadk': 1, 'nomg': 3}
+
+===== tileset Y（1 张图：['(6)Stromguarde.w3m']）
+  野怪 id 池（出现次数 top40）: {'nass': 18, 'ngst': 12, 'ngrk': 12, 'nkog': 12, 'nkob': 12, 'nwzg': 10, 'nwzd': 8, 'nenf': 6, 'nkol': 6, 'nkot': 6, 'nbrg': 2, 'nrog': 2, 'nwzr': 2, 'nbld': 2}
+  树模型: {'LTlt': 3269, 'APct': 447, 'LRrk': 326, 'VOfl': 60, 'YPbs': 32, 'YSco': 30, 'YPpp': 27, 'YSlt': 24}
+  雇佣兵营地变体: {'nmr8': 4}
+  其他中立建筑: {'ngol': 18, 'ngme': 2, 'ngad': 2}
+  常见窝组合 top10:
+    ×6   {'ngrk': 2, 'ngst': 2}
+    ×6   {'nkog': 1, 'nkol': 1, 'nkot': 1}
+    ×6   {'nkob': 2, 'nkog': 1}
+    ×4   {'nass': 2, 'nwzd': 1}
+    ×4   {'nwzd': 1, 'nwzg': 2}
+    ×2   {'nass': 2, 'nbrg': 1, 'nenf': 1}
+    ×2   {'nass': 1, 'nrog': 1, 'nwzg': 1, 'nwzr': 1}
+    ×2   {'nass': 2, 'nbld': 1, 'nenf': 2}
