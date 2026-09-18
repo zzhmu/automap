@@ -66,6 +66,7 @@
   --cliff-size 26     悬崖区团块尺寸（格）
   --cliff-layers 3    悬崖区最高抬几层（1 层 = 128 WE = 一个悬崖台阶）
   --cliff-feather 4   悬崖区外围羽化平整的宽度（格）—— 崖壁脚下的一圈平地
+  --cliff-band 4      每级台阶的最小宽度（格）—— 1 会渲成「一圈墙、里外同高」
 应用高度（对应 WE 地形面板的「应用高度」那一栏，都是同一个台地内部的起伏，
 不会变成悬崖。幅度单位统一是 WE 高度单位 = WE 高度条上的 1 格；一整层 = 128）:
   --raise 75          隆起：地面向上鼓包的幅度（σ，单位 WE 高度）
@@ -772,8 +773,9 @@ def cliff_mask(nprng, shape, land, area, size, cols, smooth=2, min_area=24,
     return m, n_holes
 
 
-def _lipschitz_levels(k, mask, max_steps):
+def _lipschitz_levels(k, mask, max_steps, band=1):
     """把台地级数场 k 约束成「相邻格最多差 1 级」（遮罩外一律视为 0 级）。
+    `band` = 每一级台阶的最小宽度（格），见下方「台阶带宽度」一节。
 
     为什么必须做（2026-09-16 加）：原来遮罩边界处的落差 = 128×k，k 可以是 2 甚至 3
     —— 那就是一堵 **2~3 级**的崖壁。可 WE 的斜坡一次只能跨 1 级（官方 293 条斜坡里
@@ -784,6 +786,14 @@ def _lipschitz_levels(k, mask, max_steps):
     约束后：遮罩最外一圈最多 1 级、第二圈最多 2 级 …… 台地就像台阶一样从边界
     一级一级爬上去，任何一圈与它外面那一圈都只差 1 级 → 斜坡一定能盖、能走。
     这是**只降不升**的传播，不会把地面抬得更高。
+
+    ⚠️ 台阶带宽度（2026-09-18 修）：只做上面这条约束，最外一圈就是「距边界 1 格」的
+    一格宽环 —— 渲出来是绕着台地的一条 1 格宽崖圈，圈里圈外却都是同一层的连续地面，
+    观感像立在平地上的一圈墙（用户原话：「只有周围一圈悬崖，圈里圈外一样高」）。
+    实测 seed 777：122 块高层带里 121 块宽度 ≤1 角点，全是这种环。
+    所以再加一条：**距边界每 `band` 格才允许升 1 级**，即第 1..band 格恒为 1 级、
+    第 band+1..2band 格最多 2 级 …… 每一级台阶都有 band 格宽，看得出来是台阶。
+    band=1 等价于原来的行为（保留兼容）。只降不升，同样不会把地面抬得更高。
     """
     kk = np.where(mask, k, 0.0).astype(np.float32)
     for _ in range(int(max_steps) + 1):
@@ -803,11 +813,19 @@ def _lipschitz_levels(k, mask, max_steps):
             kk = np.minimum(kk, nb + 1.0)
         if not (kk < prev - 1e-6).any():
             break
-    return np.where(mask, np.clip(kk, 1.0, max(1.0, float(max_steps))), 0.0)
+    kk = np.where(mask, np.clip(kk, 1.0, max(1.0, float(max_steps))), 0.0)
+    band = max(1, int(band))
+    if band > 1 and mask.any():
+        # 遮罩内每格到「遮罩外」的格距：最外一圈 = 1
+        din = dist_outside(~mask, cap=int(max_steps) * band + 4).astype(np.float32)
+        cap_k = np.floor((np.maximum(din, 1.0) - 1.0) / float(band)) + 1.0
+        kk = np.minimum(kk, np.where(mask, cap_k, 0.0))
+        kk = np.where(mask, np.clip(kk, 1.0, max(1.0, float(max_steps))), 0.0)
+    return kk
 
 
 def apply_terraces(H, mask, layer_min, plane_layer, blur_r, feather,
-                   max_steps, ref=0.0):
+                   max_steps, ref=0.0, band=3):
     """在 mask 内把连续高度场切成整层台地（层差 = 崖壁），mask 外保持连续起伏。
 
     ⚠️ 关键不变量：**层差 ΔL 必须严格对应 128*ΔL 的真实落差**，否则 WE 会渲出
@@ -829,7 +847,7 @@ def apply_terraces(H, mask, layer_min, plane_layer, blur_r, feather,
     k = np.clip(np.round((Hgap - float(ref)) / 128.0) + 1.0, 1.0,
                 max(1.0, float(max_steps)))
     if mask.any():
-        k = _lipschitz_levels(k, mask, max_steps)
+        k = _lipschitz_levels(k, mask, max_steps, band=band)
     d = dist_outside(mask, cap=max(2, int(feather) + 2))
     w = np.clip((feather + 1.0 - d) / max(1e-6, float(feather)), 0.0, 1.0)
     w = np.where(mask, 0.0, w)                 # 羽化只作用在 mask 外面
@@ -1140,7 +1158,7 @@ def _plateau_levels(lab, nlab, layer):
 
 
 def _stamp_ramp(layer, is_water, ramp, ramp_band, u, v, lv_u, lv_v, run, margin,
-                trace=None, force=True, max_jump=2):
+                trace=None, force=True, max_jump=2, H_we=None):
     """在相邻瓦片 u / v（分属层位 lv_u / lv_v 的两块台地）之间盖一条 WE 合法斜坡。
 
     几何规则来自官方 51 张地图 / 3116 个 ramp 瓦片的实测（tools/diag_ramp.py）：
@@ -1280,7 +1298,7 @@ def _stamp_ramp(layer, is_water, ramp, ramp_band, u, v, lv_u, lv_v, run, margin,
         if clean:
             if _stamp_would_be_legal(layer, ramp, want, band, cell, a0, a1):
                 return _commit(layer, ramp, ramp_band, want, band, cell, a0, a1,
-                               mark=None)
+                               mark=None, H_we=H_we)
             reasons.append(f"off{off:+d}: 邻域会留下非法斜坡瓦片")
             continue
         if not (force and legal):
@@ -1294,7 +1312,8 @@ def _stamp_ramp(layer, is_water, ramp, ramp_band, u, v, lv_u, lv_v, run, margin,
             reasons.append(bad)
     if forced is not None:
         off, a0, a1 = forced
-        return _commit(layer, ramp, ramp_band, want, band, cell, a0, a1, mark=off)
+        return _commit(layer, ramp, ramp_band, want, band, cell, a0, a1, mark=off,
+                       H_we=H_we)
     return fail("; ".join(reasons[:3]) if reasons else "无可用偏移")
 
 
@@ -1343,11 +1362,21 @@ def _stamp_would_be_legal(layer, ramp, want, band, cell, a0, a1):
     return True
 
 
-def _commit(layer, ramp, ramp_band, want, band, cell, a0, a1, mark=None):
-    """把 5 条角点线压成 want 的目标层位，并给中间 3 条打 ramp 位、抹平起伏。"""
+def _commit(layer, ramp, ramp_band, want, band, cell, a0, a1, mark=None, H_we=None):
+    """把 5 条角点线压成 want 的目标层位，并给中间 3 条打 ramp 位、抹平起伏。
+
+    H_we：世界高度场（WE 单位）。整形会改角点的层号，而「层差 = 落差/128」是
+    悬崖渲染的硬不变量 —— 只改 layer 不改 H_we，被重贴层号的角点就保持原地面的
+    高度，与真实层位脱钩，视觉上就是「周长一圈崖、内外等高」的假崖
+    （2026-09-17 实测 62 个假崖端点里 49 个来自这里/merge_orphan_flats）。
+    所以这里同步 H_we ±(t - old)×128，跟 drop_unreachable_terraces 的做法一致。
+    """
     for a in range(a0, a1 + 1):
         for p, t in want:
             rr, cc = cell(a, p)
+            old = int(layer[rr, cc])
+            if H_we is not None and old != t:
+                H_we[rr, cc] += float(t - old) * 128.0
             layer[rr, cc] = t
     for a in range(a0, a1 + 1):
         for p in band:
@@ -1360,7 +1389,7 @@ def _commit(layer, ramp, ramp_band, want, band, cell, a0, a1, mark=None):
 
 def carve_ramps(layer, is_water, max_ramps=None, cliff_cost=6, cand_cap=0,
                 edge_cost=8, edge_band=2, run=4, margin=2, max_jump=2, force=True,
-                prev_ramps=None):
+                prev_ramps=None, H_we=None):
     """按连通性需要刻斜坡，保证每块台地都有通道。
 
     做法:
@@ -1377,6 +1406,8 @@ def carve_ramps(layer, is_water, max_ramps=None, cliff_cost=6, cand_cap=0,
 
     返回 (ramp, layer, ramp_band, info)。注意 **layer 会被就地修改**：
     盖章时要压下共享角点线，而连通性自检必须用改完之后的层位。
+    H_we：世界高度场（WE 单位，可选）。整形改层号的角点会同步 ±128×层差，
+    保住「层差 = 落差/128」不变量；不给 H_we 会导致假崖（内外等高一圈崖）。
 
     prev_ramps: 上一遍已经刻好的 (ramp, ramp_band)。主流程会刻两遍（第二遍用**最终**的
     is_water 复查后补刻），第二遍必须把第一遍的结果传进来 —— 否则它以为地图上
@@ -1548,7 +1579,7 @@ def carve_ramps(layer, is_water, max_ramps=None, cliff_cost=6, cand_cap=0,
                     r2, c2 = divmod(v, W)
                     if _stamp_ramp(layer, is_water, ramp, ramp_band,
                                    (r, c), (r2, c2), lu, lv, rr, margin,
-                                   force=fc, max_jump=max_jump):
+                                   force=fc, max_jump=max_jump, H_we=H_we):
                         stamped = True
                         break
                 if stamped:
@@ -1698,7 +1729,8 @@ def _local_merge_ok(layer, is_water, ramp, keep, ys, xs, tgt, max_jump):
     return False
 
 
-def merge_orphan_flats(layer, is_water, ramp, min_area=24, max_jump=2, rounds=6):
+def merge_orphan_flats(layer, is_water, ramp, min_area=24, max_jump=2, rounds=6,
+                       H_we=None):
     """把被斜坡端头切下来的「孤立小块可走平地」并进同岛的主可走块。
 
     刻斜坡要在崖壁上压出 5 条整齐角点线，斜坡两个端头必然切出新崖壁；如果端头
@@ -1707,6 +1739,9 @@ def merge_orphan_flats(layer, is_water, ramp, min_area=24, max_jump=2, rounds=6)
     做法：逐岛取面积最大的可走块为主块，其余 <= min_area 的纯平地碎块，按邻接
     角点出现过的层位逐个试算（局部泛洪确认真能接上主块）后整体压过去。
     含 ramp 位的碎块属于斜坡本体，不动。返回合并掉的碎块数，layer 就地修改。
+    H_we：世界高度场（WE 单位，可选）。合并改层号的角点同步 ±128×层差 ——
+    只改 layer 会让该碎块的世界高度与层位脱钩，与邻居之间出现
+    「层差=1、落差≈0」的假崖圈（2026-09-17 实测）。
     """
     merged = 0
     for _ in range(rounds):
@@ -1738,6 +1773,11 @@ def merge_orphan_flats(layer, is_water, ramp, min_area=24, max_jump=2, rounds=6)
                     if _local_merge_ok(layer, is_water, ramp, keep, ys, xs,
                                        tgt, max_jump):
                         for y, x in zip(ys, xs):
+                            if H_we is not None:
+                                H_we[y, x] += float(tgt - layer[y, x]) * 128.0
+                                H_we[y, x + 1] += float(tgt - layer[y, x + 1]) * 128.0
+                                H_we[y + 1, x] += float(tgt - layer[y + 1, x]) * 128.0
+                                H_we[y + 1, x + 1] += float(tgt - layer[y + 1, x + 1]) * 128.0
                             layer[y, x] = layer[y, x + 1] = tgt
                             layer[y + 1, x] = layer[y + 1, x + 1] = tgt
                         did += 1
@@ -2310,6 +2350,8 @@ def main():
                                   MAX_LAYER - int(layer_min),
                                   max(1, int(layer_max) - int(layer_min))))
         cliff_feather = max(1.0, float(opts.get("cliff-feather", 4.0)))
+        # 每一级台阶的最小宽度（格）：1 = 最外一圈只有 1 角点宽（会渲成一圈墙，别用）
+        cliff_band = max(1, int(float(opts.get("cliff-band", 4))))
         blur_r = max(2, int(round(cliff_size / 4.0)))
         # 离水太近的地方不长台地 —— 台地的基准面是平滑高度 Hgap，岸边 Hgap 可能已经
         # 在水面以下，台地就会泡在水里（水角点跟 layer 的对应关系也会变得别扭）。
@@ -2322,7 +2364,7 @@ def main():
         cliff_ref = float(np.percentile(_lh, 15)) if _lh.size > 50 else 0.0
         H_we, layer, ksteps = apply_terraces(
             H_we, cmask, layer_min, layer_min, blur_r, cliff_feather, cliff_layers,
-            ref=cliff_ref)
+            ref=cliff_ref, band=cliff_band)
         is_water = H_we < 0.0
         n_terr = int(len(np.unique(layer[cmask]))) if cmask.any() else 0
         print(f"模式: 局部悬崖  初始地面 {base_desc} / 山脉 {mountain} / "
@@ -2342,11 +2384,15 @@ def main():
             limit = None if ramps_opt == "auto" else int(ramps_opt)
             ramp, layer, ramp_band, ramp_info = carve_ramps(
                 layer, is_water, max_ramps=limit, run=ramp_run, max_jump=max_jump,
-                force=ramp_force)
+                force=ramp_force, H_we=H_we)
             if ramp_info.get("ramps"):
-                n_fix = merge_orphan_flats(layer, is_water, ramp,
-                                           min_area=int(opts.get("orphan-area", 24)),
-                                           max_jump=max_jump)
+                import os as _os
+                if _os.environ.get("MERGE_DISABLE_ENV"):
+                    n_fix = 0
+                else:
+                    n_fix = merge_orphan_flats(layer, is_water, ramp,
+                                               min_area=int(opts.get("orphan-area", 24)),
+                                               max_jump=max_jump, H_we=H_we)
                 if n_fix:
                     print(f"      斜坡收尾: 合并 {n_fix} 块被斜坡端头切断的孤立平地")
         plane_layer = int(layer_min)
@@ -2461,12 +2507,12 @@ def main():
             r2, l2, z2, info2 = carve_ramps(
                 layer, is_water, max_ramps=None, run=ramp_run,
                 max_jump=max_jump,                 force=ramp_force,
-                prev_ramps=(ramp, ramp_band))
+                prev_ramps=(ramp, ramp_band), H_we=H_we)
             if info2.get("ramps"):
                 ramp, layer, ramp_band = r2, l2, z2
-                n_fix2 = merge_orphan_flats(layer, is_water, ramp,
-                                            min_area=int(opts.get("orphan-area", 24)),
-                                            max_jump=max_jump)
+                n_fix2 = 0 if __import__("os").environ.get("MERGE_DISABLE_ENV") else merge_orphan_flats(
+                    layer, is_water, ramp,
+                    min_area=int(opts.get("orphan-area", 24)), max_jump=max_jump, H_we=H_we)
                 n_iso2 = connectivity_report(layer, is_water, ramp)[2]
                 # 日志里报的是「总共和刻了几条」，所以两遍要合并统计
                 _tot = int(ramp_info.get("ramps", 0)) + int(info2.get("ramps", 0))
