@@ -22,7 +22,7 @@
   --water-level -50    绝对水面（WE），给了就覆盖 --water
   --shelf-depth 128    水底深度下限（WE，<128 引擎不渲染水面）；也是深水判据
   --max-relief 512     相对水面高度的振幅上限（WE）
-  --cliff-area 0.15 / --cliff-size 26 / --cliff-layers 3 / --cliff-feather 4
+  --cliff-area 0.15 / --cliff-size 26 / --cliff-layers 3 / --cliff-feather 4 / --cliff-band 4
                        悬崖区的面积占比 / 团块尺寸 / 最高抬几层 / 外围羽化宽度
   --trees 0            0 = 不撒树（跳过 add_doodads 这一步）
   --buildings 0        0 = 不摆中立建筑（跳过 add_buildings 这一步）
@@ -37,6 +37,15 @@
   --nb-edge 6          距地图边缘的最小格数
   --nb-flat-tol 1      建筑占地范围内的允许层差（0 = 必须完全同层）
   --nb-avoid-trees 1   建筑避开装饰物（树）
+  --triggers 1         1 = 生成后注入触发器（改写 war3map.j，见 add_triggers.py）
+  --msg "文本"          进图欢迎消息（配合 --msg-seconds 显示秒数，默认 8）
+  --no-fog             关闭战争迷雾（全图可见）
+  --revive-seconds N   英雄死亡 N 秒后自动在出生点复活
+  --timed-msg "文本"    开局定时消息（--timed-msg-delay / --timed-msg-period / --timed-msg-times）
+  --jass "代码"         注入自定义 Jass 顶层代码（或 --jass-file 文件；$VAR 占位符
+                       用 --set-VAR 值 替换，可做参数化模板）
+  --triggers-dir <dir> 触发器源码文件夹（默认 triggers/jass/，所有 .j 按文件名
+                       排序拼接注入；none = 关闭文件夹注入）
 
 参数全部透传给两个子步骤:
   --seed / --freq / --layers / --layer-min / --layer-max / --octaves / --smooth / --level-bias
@@ -135,6 +144,24 @@ def parse_opts(argv):
     return args, opts
 
 
+def run_triggers(opts, out, prefix, exe_args, seed):
+    """第 5 步（可选）：触发器注入 —— 改写 war3map.j，给地图加游戏逻辑。"""
+    if str(opts.get("triggers", "0")) in ("0", "false", "no"):
+        return 0
+    print("[5/5] 触发器")
+    tg_cmd = [PY, os.path.join(HERE, "add_triggers.py"), out] + exe_args + ["--no-backup"]
+    for k in ("msg", "msg-seconds", "timed-msg", "timed-msg-delay",
+              "timed-msg-period", "timed-msg-times", "revive-seconds",
+              "jass", "jass-file", "jass-dir"):
+        v = opts.get(k)
+        if v is not None:
+            tg_cmd += ["--" + k, str(v)]
+    for flag in ("no-fog", "leak-clean"):
+        if str(opts.get(flag, "0")) not in ("0", "false", "no"):
+            tg_cmd += ["--" + flag]
+    return run_child(tg_cmd)
+
+
 def main():
     args, opts = parse_opts(sys.argv[1:])
     template = opts.get("template")
@@ -190,7 +217,7 @@ def main():
                  ("shelf-depth", 128), ("max-relief", 512), ("base", None),
                  ("base-level", None), ("water-level", None),
                  ("cliff-area", 0.15), ("cliff-size", 26),
-                 ("cliff-layers", 3), ("cliff-feather", 4.0),
+                 ("cliff-layers", 3), ("cliff-feather", 4.0), ("cliff-band", 4),
                  ("shore-width", 3), ("shore-shallow", 0),
                  ("world-clamp", 0)):
         if opts.get(k) is not None:
@@ -247,9 +274,10 @@ def run_buildings(opts, out, prefix, exe_args, seed):
     """第 3 步（可选）：中立建筑。数量由 --nb-<id> 指定，0 = 该类不放。"""
     if str(opts.get("buildings", "1")) in ("0", "false", "no"):
         print("[3/3] 中立建筑 —— 已跳过（--buildings 0）")
+        rc = run_triggers(opts, out, prefix, exe_args, seed)
         print(f"\n完成 → {out}")
         print(f"预览 → {prefix}_terrain.png / {prefix}_trees.png")
-        return 0
+        return rc
 
     print("[3/3] 中立建筑")
     bld_cmd = [PY, os.path.join(HERE, "add_buildings.py"), out] + exe_args + [
@@ -282,9 +310,11 @@ def run_buildings(opts, out, prefix, exe_args, seed):
 def run_creeps(opts, out, prefix, exe_args, seed):
     """第 4 步（可选）：野怪。守建筑的野怪点 + 树林角落的野怪点 + 按等级掉落。"""
     if str(opts.get("creeps", "1")) in ("0", "false", "no"):
+        print(f"[4/4] 野怪 —— 已跳过（--creeps 0）")
+        rc = run_triggers(opts, out, prefix, exe_args, seed)
         print(f"\n完成 → {out}")
         print(f"预览 → {prefix}_terrain.png / {prefix}_trees.png / {prefix}_buildings.png")
-        return 0
+        return rc
 
     print("[4/4] 野怪")
     cr_cmd = [PY, os.path.join(HERE, "add_creeps.py"), out] + exe_args + [
@@ -299,6 +329,10 @@ def run_creeps(opts, out, prefix, exe_args, seed):
     if chosen_style:
         cr_cmd += ["--style", chosen_style]
     rc = run_child(cr_cmd)
+    if rc:
+        return rc
+
+    rc = run_triggers(opts, out, prefix, exe_args, seed)
     if rc:
         return rc
 

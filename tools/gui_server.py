@@ -178,6 +178,7 @@ def run_job(job_id, params):
         add("cliff-size", params.get("cliff_size", 26))
         add("cliff-layers", params.get("cliff_layers", 3))
         add("cliff-feather", params.get("cliff_feather", 4))
+        add("cliff-band", params.get("cliff_band", 4))
         add("layer-min", params.get("layer_min", 2))
         add("layer-max", params.get("layer_max", 5))
         add("raise", params.get("raise", 75))
@@ -232,6 +233,17 @@ def run_job(job_id, params):
         else:
             add("forest-camps", max(0, int(float(params.get("cr_forest_n", 16) or 0))))
         add("camp-scale", params.get("cr_camp_scale", 1.0))
+        # 第 6 步：触发器（可选，默认只注入欢迎消息文本框非空时的欢迎触发器）
+        if str(params.get("triggers", 0)) in ("1", "true", "True"):
+            add("triggers", 1)
+        tg_msg = params.get("tg_msg")
+        if tg_msg:
+            add("msg", tg_msg)
+            add("msg-seconds", params.get("tg_msg_sec", 8))
+        if str(params.get("tg_no_fog", 0)) in ("1", "true", "True"):
+            add("no-fog", 1)
+        if str(params.get("tg_revive", 0)) in ("1", "true", "True"):
+            add("revive-seconds", params.get("tg_revive_sec", 3))
         # 地图风格：GUI 多选，逗号拼接 → random_map 随机抽一
         if params.get("style"):
             add("style", params["style"])
@@ -593,6 +605,8 @@ PAGE = r"""<!DOCTYPE html>
       <input id="cliffLayers" type="range" min="1" max="6" step="1" value="3">
       <label class="tip" data-tip="<span class='tt'>外围羽化宽度</span>崖壁脚下一圈<b>平地</b>的宽度（格）。<br>太窄会让崖壁直接贴着水面或别的崖壁，WE 里容易看到错乱的崖面。">外围羽化宽度（格，崖壁脚下的一圈平地） <span id="cfV">4</span><span class="q">?</span></label>
       <input id="cliffFeather" type="range" min="1" max="12" step="1" value="4">
+      <label class="tip" data-tip="<span class='tt'>每级台阶最小宽度</span>台地边缘每一级台阶的宽度（格）。<br>设成 1 会渲成「绕台地一圈的 1 格宽崖墙，圈里圈外却一样高」——那是 bug 形态，别用。">每级台阶最小宽度（格） <span id="cbdV">4</span><span class="q">?</span></label>
+      <input id="cliffBand" type="range" min="1" max="10" step="1" value="4">
       <div class="hint">低频场挑出几大块区域做层量化 → 台地拔地而起，外围一圈羽化平整，
         落差严格等于 128 × 层差（WE 才不会渲出错乱崖壁）。台地最高受「最高层」限制。
         区域越靠水越不会被选中（台地不下水）。</div>
@@ -699,6 +713,29 @@ PAGE = r"""<!DOCTYPE html>
         <input id="crCampScale" type="range" min="0.2" max="3" step="0.1" value="1">
       </div>
     </div>
+
+    <div class="panel">
+      <h2>第 6 步 · 触发器（可选）</h2>
+      <div class="chk"><input type="checkbox" id="triggers">
+        <label for="triggers" style="margin:0"
+          title="生成完成后往地图里写触发器（直接改写 war3map.j 游戏脚本）。不勾 = 不注入任何触发器">注入触发器</label></div>
+      <div id="trgBody">
+        <div class="hint" style="margin:0 0 8px">触发器直接写进地图的游戏脚本（war3map.j）。
+          <b>欢迎消息</b>：进图后向所有玩家显示一段文字；<b>全图无雾</b>：关闭战争迷雾；
+          <b>英雄复活</b>：英雄死亡 N 秒后在出生点自动复活（RPG/生存图常用）。</div>
+        <label class="tip" data-tip="<span class='tt'>欢迎消息</span>进图后显示给所有玩家的文字，<br>留空 = 不注入这条。显示秒数跟在后面。">欢迎消息 <span class="q">?</span></label>
+        <input id="tgMsg" type="text" value="" placeholder="例如：欢迎来到随机地图！"
+          style="width:100%">
+        <label class="tip" data-tip="<span class='tt'>消息显示秒数</span>欢迎消息停留多少秒后消失（1~60）。">显示秒数 <span id="tgmsV">8</span><span class="q">?</span></label>
+        <input id="tgMsgSec" type="range" min="1" max="60" step="1" value="8">
+        <div class="chk" style="margin:4px 0"><input type="checkbox" id="tgNoFog">
+          <label for="tgNoFog" style="margin:0">全图无雾（关闭战争迷雾）</label></div>
+        <div class="chk" style="margin:4px 0"><input type="checkbox" id="tgRevive">
+          <label for="tgRevive" style="margin:0">英雄死亡自动复活</label></div>
+        <label class="tip" data-tip="<span class='tt'>复活延迟</span>英雄死亡后等几秒复活（1~120 秒）。<br>复活位置 = 该玩家出生点。">复活延迟（秒） <span id="tgrV">3</span><span class="q">?</span></label>
+        <input id="tgReviveSec" type="range" min="1" max="120" step="1" value="3">
+      </div>
+    </div>
   </div>
 
   <!-- 右：结果 -->
@@ -743,6 +780,7 @@ const sliders = [
   ["cliffSize","czV",v=>v],
   ["cliffLayers","clV",v=>v],
   ["cliffFeather","cfV",v=>v],
+  ["cliffBand","cbdV",v=>v],
   ["raise","raV",v=>v],
   ["lower","loV",v=>v],
   ["rough","rgV",v=>v],
@@ -770,6 +808,8 @@ const sliders = [
   ["nbFlatTol","bfV",v=>v],
   ["crGuardShare","gsV",v=>Math.round(v*100)+"%"],
   ["crCampScale","cksV",v=>v.toFixed(1)],
+  ["tgMsgSec","tgmsV",v=>v],
+  ["tgReviveSec","tgrV",v=>v],
 ];
 sliders.forEach(([id,out,f])=>{
   const el=$(id);
@@ -821,6 +861,9 @@ function syncMode(){
   document.querySelectorAll("#crpBody input,#crpBody select")
     .forEach(e=>{ if(e.id!=="crForestAuto")
       e.disabled = !crOn || (e.id==="crForestN" && $("crForestAuto").checked); });
+  const tgOn = $("triggers").checked;
+  document.querySelectorAll("#trgBody input,#trgBody select")
+    .forEach(e=>e.disabled=!tgOn);
   $("fnV").textContent = $("crForestAuto").checked
     ? "自动" : $("crForestN").value;
   const BASE_TXT = {
@@ -831,7 +874,7 @@ function syncMode(){
   };
   $("baseHint").innerHTML = BASE_TXT[base] || BASE_TXT.auto;
 }
-["base","mountain","cliffs","trees","buildings","creeps","crForestAuto"].forEach(id=>$(id).addEventListener("input",syncMode));
+["base","mountain","cliffs","trees","buildings","creeps","crForestAuto","triggers"].forEach(id=>$(id).addEventListener("input",syncMode));
 syncMode();
 
 function layerInfo(){
@@ -907,6 +950,7 @@ function params(){
     cliff_size:+$("cliffSize").value,
     cliff_layers:+$("cliffLayers").value,
     cliff_feather:+$("cliffFeather").value,
+    cliff_band:+$("cliffBand").value,
     layer_min:+$("layerMin").value, layer_max:+$("layerMax").value,
     ramps:$("ramps").value,
     ramp_force:$("rampForce").checked?1:0,
@@ -948,6 +992,13 @@ function params(){
     cr_forest_auto:$("crForestAuto").checked?1:0,
     cr_forest_n:+$("crForestN").value,
     cr_camp_scale:+$("crCampScale").value,
+    // 第 6 步：触发器
+    triggers:$("triggers").checked?1:0,
+    tg_msg:$("tgMsg").value.trim(),
+    tg_msg_sec:+$("tgMsgSec").value,
+    tg_no_fog:$("tgNoFog").checked?1:0,
+    tg_revive:$("tgRevive").checked?1:0,
+    tg_revive_sec:+$("tgReviveSec").value,
     style:stylePick(),
   };
 }
